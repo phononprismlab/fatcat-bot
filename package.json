@@ -1,0 +1,19 @@
+{
+  "name": "fatcat-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "肥肥风筝猫 —— 最忠实的口嗨记录者（QQ OneBot 11 机器人）",
+  "type": "commonjs",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node --experimental-sqlite src/index.js",
+    "selftest": "node --experimental-sqlite scripts/selftest.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {},
+  "optionalDependencies": {
+    "pdfkit": "^0.15.0"
+  }
+}

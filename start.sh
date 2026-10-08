@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 【肥肥风筝猫】一键启动（Linux / macOS / Git Bash）
-set -e
+set -euo pipefail
 cd "$(dirname "$0")"
 
 NODE_MIN_MAJOR=22

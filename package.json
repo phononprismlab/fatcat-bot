@@ -10,6 +10,8 @@
     "start": "node --experimental-sqlite src/index.js",
     "selftest": "node --experimental-sqlite scripts/selftest.js",
     "admintest": "node --experimental-sqlite scripts/admincheck.js",
+    "deploycheck": "node --experimental-sqlite scripts/deploycheck.js",
+    "backup": "node --experimental-sqlite scripts/backup.js",
     "admindemo": "node --experimental-sqlite scripts/admindemo.js",
     "admine2e": "node scripts/admine2e.mjs",
     "pdf:build": "node scripts/pdfcheck.js",

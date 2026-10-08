@@ -1,0 +1,70 @@
+# 肥肥风筝猫 · 管理台反向代理（Nginx）
+#
+# 这是**示例片段**，不是能直接覆盖的完整 nginx.conf ——
+# 请把它放进你的 server 配置里（/etc/nginx/conf.d/ 或 sites-available/）。
+#
+# 证书：推荐用 certbot 申请（会自动改好下面的 ssl_certificate 路径）
+#   apt install certbot python3-certbot-nginx
+#   certbot --nginx -d admin.example.com
+#
+# 需要替换：admin.example.com、证书路径。
+
+# HTTP 全量跳 HTTPS（certbot 会自动插入 ACME 验证用的 location，别手动删）
+server {
+    listen 80;
+    listen [::]:80;
+    server_name admin.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name admin.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/admin.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/admin.example.com/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+    ssl_session_cache   shared:SSL:10m;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header X-Robots-Tag "noindex, nofollow" always;
+    server_tokens off;
+
+    # 管理台 POST 的 JSON body 很小（程序侧上限 256KB），1m 足够
+    client_max_body_size 1m;
+
+    access_log /var/log/nginx/fatcat-admin.access.log;
+    error_log  /var/log/nginx/fatcat-admin.error.log;
+
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # 按用户导出多篇 PDF 时渲染会比较慢，超时给足
+        proxy_connect_timeout 10s;
+        proxy_send_timeout    300s;
+        proxy_read_timeout    300s;
+
+        # 下载 zip 时不要缓冲到 nginx 磁盘上
+        proxy_buffering off;
+    }
+
+    # ---- 可选：只允许特定来源 IP ----
+    # location / {
+    #     allow 203.0.113.10;
+    #     allow 198.51.100.0/24;
+    #     deny all;
+    #     proxy_pass http://127.0.0.1:8787;
+    # }
+}

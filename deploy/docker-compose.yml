@@ -1,0 +1,103 @@
+# 肥肥风筝猫 + NapCat 一体化部署（Docker）
+#
+# 这条路和 systemd 那条路二选一：
+#   - Docker：服务器上什么都不用装，两个容器起完就能跑，适合干净的新机器。
+#   - systemd：见 deploy/README.md，适合已经手工装好 Node 的机器。
+#
+# 用法：
+#   1. 在**项目根目录**建好配置：cp .env.example .env，然后填好
+#        ADMIN_TOKEN、LLM_* 、NAPCAT_WEBUI_TOKEN
+#   2. 起容器（在项目根目录执行）：
+#        docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
+#   3. 看日志确认连上了：
+#        docker compose -f deploy/docker-compose.yml logs -f fatcat
+#        看到「OneBot 已连接」即可
+#   4. 首次需要登录 QQ：浏览器打开 http://<服务器IP>:6099/webui
+#        口令就是 .env 里的 NAPCAT_WEBUI_TOKEN
+#        ⚠️ 公网环境请把下面的 "6099:6099" 改成 "127.0.0.1:6099:6099"，
+#           然后用 SSH 隧道访问（NapCat 官方明确警告 WebUI 不要暴露公网）
+#
+# 关于 MODE=ws：
+#   NapCat 镜像支持 MODE=<模板名>，启动时会把 /app/templates/ws.json 拷成
+#   config/onebot11.json —— 也就是「OneBot 11 WebSocket 服务器，监听 0.0.0.0:3001」。
+#   这样第一次起来就不用进 WebUI 手点配置了。
+#   ⚠️ 但它**每次启动都会覆盖** config/onebot11.json。等你按自己需要改过网络配置之后，
+#      请把 MODE=ws 这一行删掉，否则重启会把你的改动冲掉。
+
+services:
+  fatcat:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: fatcat-bot:latest
+    container_name: fatcat-bot
+    restart: unless-stopped
+
+    # 容器内的环境变量直接来自项目根的 .env（容器里也会被程序自己再读一遍，结果一致）
+    env_file:
+      - ../.env
+    environment:
+      DATA_DIR: /data
+      # 走容器内部网络直连 NapCat，不经过宿主机端口，也就不会被外部访问到
+      ONEBOT_WS_URL: ws://napcat:3001
+      # 容器里必须绑 0.0.0.0，否则宿主机的端口映射进不来。
+      # 安全性由下面 ports 只发布到 127.0.0.1 保证。
+      ADMIN_HOST: 0.0.0.0
+
+    volumes:
+      - fatcat-data:/data
+
+    ports:
+      # 只发布到宿主机回环地址 —— 公网访问请走 SSH 隧道或反向代理（见 deploy/README.md）
+      - "127.0.0.1:8787:8787"
+
+    networks:
+      - fatcat
+    depends_on:
+      - napcat
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  napcat:
+    image: mlikiowa/napcat-docker:latest
+    container_name: napcat
+    restart: unless-stopped
+
+    environment:
+      - NAPCAT_UID=${NAPCAT_UID:-0}
+      - NAPCAT_GID=${NAPCAT_GID:-0}
+      # 预置「OneBot 11 WebSocket 服务器」配置，见文件顶部说明
+      - MODE=ws
+      # 预置 WebUI 口令。没设会直接报错，避免出现默认弱口令。
+      - WEBUI_TOKEN=${NAPCAT_WEBUI_TOKEN:?请在 .env 里设置 NAPCAT_WEBUI_TOKEN}
+
+    # 固定 MAC 地址：QQ 登录风控会看设备指纹，MAC 漂移容易触发验证
+    mac_address: 02:42:ac:11:00:02
+
+    volumes:
+      # QQ 登录态与 NapCat 配置必须持久化，否则每次重建都要重新登录
+      - ../docker-data/napcat-config:/app/napcat/config
+      - ../docker-data/ntqq:/app/.config/QQ
+
+    ports:
+      # ⚠️ NapCat WebUI。公网环境请改成 "127.0.0.1:6099:6099"
+      - "6099:6099"
+
+    networks:
+      - fatcat
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  fatcat:
+
+volumes:
+  fatcat-data:

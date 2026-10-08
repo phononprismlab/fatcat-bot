@@ -117,7 +117,25 @@ check(ovBoxes.includes('最近口嗨') && ovBoxes.includes('最近资料') && ov
 check(ovText.includes('多米尼卡'), '概览显示用户昵称');
 check(ovText.includes('回旋镖'), '概览显示片段摘要');
 check(ovText.includes('已连接') || ovText.includes('未连接') || ovText.includes('仅管理台'), '概览显示连接状态');
+// 部署运维信息：这些行是「上线后能不能自己排障」的关键，别哪天被删了
+for (const label of ['本次连接时长', '最后收到事件', '累计重连', '未完成动作', '健康检查', '掉线监控', '进程运行时长']) {
+  check(ovText.includes(label), `运行状态含「${label}」`);
+}
+check(ovText.includes('/healthz'), '运行状态标出健康检查端点');
 await shot(String(n).padStart(2, '0') + '-overview-boxes'); n++;
+
+console.log('\n[配置视图 · 运维按钮]');
+await evaluate("document.querySelector('#nav button[data-view=\"config\"]').click(); true");
+await sleep(1000);
+check(await evaluate("!!document.querySelector('#content button[data-act=\"reconnect\"]')"), '配置页有「强制重连 OneBot」按钮');
+check(await evaluate("!!document.querySelector('#content button[data-act=\"monitor-check\"]')"), '配置页有「立即探活」按钮');
+const cfgText = await evaluate("document.querySelector('#content').textContent");
+check(cfgText.includes('掉线监控'), '配置页列出掉线监控配置');
+await evaluate("document.querySelector('#content button[data-act=\"monitor-check\"]').click(); true");
+await sleep(1500);
+const toastText = await evaluate("document.querySelector('#toast') ? document.querySelector('#toast').textContent : ''");
+check(/探活/.test(toastText), `点「立即探活」后有结果提示（实际「${toastText.trim().slice(0, 40)}」）`);
+await shot(String(n).padStart(2, '0') + '-config-ops'); n++;
 
 console.log('\n[会话详情弹层]');
 await evaluate("document.querySelector('#nav button[data-view=\"sessions\"]').click(); true");

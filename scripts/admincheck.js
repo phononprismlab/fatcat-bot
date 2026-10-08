@@ -6,6 +6,7 @@ const assert = require('node:assert');
 const { openDb } = require('../src/db');
 const { createRepo } = require('../src/repo');
 const { createAdminServer } = require('../src/admin/server');
+const { createMonitor } = require('../src/monitor');
 const { loadConfig } = require('../src/config');
 
 const root = path.resolve(__dirname, '..');
@@ -28,6 +29,13 @@ const config = {
   llm: { baseUrl: '', apiKey: '', model: '' },
   boomerangDefaultDays: 3,
   admin: { host: '127.0.0.1', port: 0, token: 'test-token-123', sessionTtlMs: 3600000, only: true },
+  // 故意塞一个带密钥的 webhook，用来验证配置接口不会把 key 漏出去
+  monitor: {
+    enabled: true,
+    webhookUrl: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=WEBHOOK-SECRET-KEY',
+    intervalMs: 120000,
+    cooldownMs: 1800000,
+  },
 };
 
 const TOKEN = 'test-token-123';
@@ -90,7 +98,9 @@ const sendJson = async (p, method, body) => {
 };
 
 (async () => {
-  const admin = createAdminServer({ config, repo, client: null, boomerang: null, startedAt: Date.now() - 61000 });
+  // client 传 null（纯管理台模式），监控因此走「不检查 OneBot」那条分支
+  const monitor = createMonitor({ config, client: null });
+  const admin = createAdminServer({ config, repo, client: null, boomerang: null, monitor, startedAt: Date.now() - 61000 });
   const addr = await admin.start();
   origin = `http://127.0.0.1:${addr.port}`;
   console.log(`管理台测试服务：${origin}\n`);
@@ -142,6 +152,8 @@ const sendJson = async (p, method, body) => {
   assert.equal(ov.data.snippets, 1, '片段数');
   assert.equal(ov.data.files, 1, '资料数');
   assert.equal(ov.bot.mode, 'admin-only', '纯管理台模式');
+  assert.ok(ov.monitor, '概览应带出掉线监控状态');
+  assert.equal(ov.monitor.enabled, true, '监控默认应启用');
   assert.ok(ov.disk.db > 0, '应统计数据库体积');
   assert.ok(ov.process.uptimeMs >= 60000, '运行时长');
   console.log(`✓ 概览统计正确（用户 2 / 会话 2 / 消息 4 / 片段 1 / 资料 1，DB ${(ov.disk.db / 1024).toFixed(0)}KB）`);
@@ -153,7 +165,11 @@ const sendJson = async (p, method, body) => {
   assert.ok(!cfgText.includes('secret-token'), 'OneBot access token 不应明文返回');
   assert.ok(!cfgText.includes(TOKEN), '管理台口令不应返回');
   assert.ok(r.body.onebot.accessToken.includes('已设置'), 'token 应显示为已设置');
-  console.log('✓ 配置接口不泄漏明文密钥');
+  assert.ok(!cfgText.includes('WEBHOOK-SECRET-KEY'), '告警 webhook 的 key 不应明文返回');
+  assert.equal(r.body.monitor.webhook, 'qyapi.weixin.qq.com', '只应回 webhook 的主机名');
+  assert.equal(r.body.monitor.intervalMinutes, 2, '探活间隔应为 2 分钟');
+  assert.equal(r.body.monitor.cooldownMinutes, 30, '告警冷却应为 30 分钟');
+  console.log('✓ 配置接口不泄漏明文密钥（含告警 webhook）');
 
   // 7. 日志
   r = await getJson('/api/logs?limit=10');
@@ -338,7 +354,36 @@ const sendJson = async (p, method, body) => {
   assert.equal(r.status, 401, '登出后应 401');
   console.log('✓ 登出后会话失效 -> 401');
 
-  // 22. 登录限速（放最后，因为会锁本机 IP 60 秒）
+  // 22. 健康检查：免登录、且不带业务数据
+  r = await getJson('/healthz');
+  assert.equal(r.status, 200, 'ADMIN_ONLY 模式下 /healthz 应 200');
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.mode, 'admin-only');
+  assert.equal(r.body.bot.mode, 'admin-only');
+  const hzText = JSON.stringify(r.body);
+  assert.ok(!hzText.includes('多米尼卡'), '健康检查不应带出业务数据');
+  assert.ok(!hzText.includes('10001'), '健康检查不应带出用户 ID');
+  console.log('✓ /healthz 免登录、不含业务数据（ADMIN_ONLY -> 200）');
+
+  // 23. 掉线监控：手动探活接口（上一组刚登出，这里先重新登录）
+  r = await sendJson('/api/login', 'POST', { token: TOKEN });
+  assert.equal(r.status, 200, '重新登录应 200');
+  r = await sendJson('/api/monitor/check', 'POST');
+  assert.equal(r.status, 200, '手动探活应 200');
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.status.healthy, true, 'ADMIN_ONLY 模式下探活应视为正常');
+  assert.equal(r.body.status.checks, 1, '应记录检查次数');
+  assert.ok(/仅管理台/.test(r.body.status.lastReason), '原因应说明是纯管理台模式');
+  console.log('✓ 掉线监控：手动探活接口返回状态');
+
+  // 24. 未登录时探活接口也不放行（别顺手开了后门）
+  r = await sendJson('/api/logout', 'POST');
+  assert.equal(r.status, 200);
+  r = await sendJson('/api/monitor/check', 'POST');
+  assert.equal(r.status, 401, '未登录时 /api/monitor/check 应 401');
+  console.log('✓ 未登录时探活接口 -> 401');
+
+  // 25. 登录限速（放最后，因为会锁本机 IP 60 秒）
   let limited = false;
   for (let i = 0; i < 12; i++) {
     const rr = await sendJson('/api/login', 'POST', { token: 'bad-' + i });

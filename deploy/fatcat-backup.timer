@@ -1,0 +1,19 @@
+# 肥肥风筝猫 · 每日备份定时器
+#
+# 用 systemd timer 而不是 cron，理由：
+#   1. 不依赖 cron 服务是否装了/起着（很多精简镜像默认没有）
+#   2. Persistent=true —— 服务器在备份时间点处于关机状态时，开机后补跑一次
+#   3. 备份失败会记成 failed 单元，journalctl / systemctl --failed 一眼能看到
+
+[Unit]
+Description=肥肥风筝猫 每日备份定时器
+
+[Timer]
+OnCalendar=*-*-* 04:30:00
+# 错开整点，避免和别的定时任务抢 IO
+RandomizedDelaySec=10min
+Persistent=true
+Unit=fatcat-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,35 @@
+# 肥肥风筝猫 · 每日备份（由 fatcat-backup.timer 触发）
+#
+# 模板文件，占位符由 deploy/install-systemd.sh 渲染。
+
+[Unit]
+Description=肥肥风筝猫 数据备份
+Documentation=https://github.com/phononprismlab/fatcat-bot
+After=network.target
+
+[Service]
+Type=oneshot
+User=@RUN_USER@
+Group=@RUN_GROUP@
+WorkingDirectory=@APP_DIR@
+ExecStart=/bin/bash @APP_DIR@/deploy/backup.sh
+
+# 备份是后台活，别跟机器人抢 CPU / 磁盘
+Nice=10
+IOSchedulingClass=idle
+UMask=0077
+
+# ---- 安全加固（比主服务宽松一点：备份可能要 tar / 跑 rclone / ssh）----
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=@PROTECT_HOME@
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=@APP_DIR@/data @BACKUP_DIR@
+
+[Install]
+WantedBy=multi-user.target

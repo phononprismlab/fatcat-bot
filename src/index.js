@@ -7,6 +7,7 @@ const { createRepo } = require('./repo');
 const { OneBotClient } = require('./onebot/client');
 const { createBot } = require('./core/bot');
 const { startBoomerang } = require('./core/boomerang');
+const { createMonitor } = require('./monitor');
 const { createAdminServer } = require('./admin/server');
 
 function isLoopback(host) {
@@ -24,6 +25,7 @@ async function main() {
   let client = null;
   let bot = null;
   let boomerang = null;
+  let monitor = null;
 
   if (config.admin.only) {
     logger.warn('ADMIN_ONLY 模式：只启动管理台，不连接 OneBot');
@@ -41,7 +43,11 @@ async function main() {
     boomerang = startBoomerang({ config, repo, client });
   }
 
-  const admin = createAdminServer({ config, repo, client, boomerang, startedAt });
+  // 掉线监控：进程活着但账号掉线，外部探活看不出来，只有它能发现
+  monitor = createMonitor({ config, client });
+  monitor.start();
+
+  const admin = createAdminServer({ config, repo, client, boomerang, monitor, startedAt });
   let adminAddr = null;
   try {
     adminAddr = await admin.start();
@@ -70,6 +76,7 @@ async function main() {
   const shutdown = () => {
     logger.info('退出中…');
     if (boomerang) boomerang.stop();
+    if (monitor) monitor.stop();
     if (client) client.stop();
     if (adminAddr) admin.stop().catch(() => {});
     try { db.close(); } catch (e) { /* ignore */ }

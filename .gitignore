@@ -1,4 +1,6 @@
 node_modules/
 data/
+backups/
+docker-data/
 .env
 *.log

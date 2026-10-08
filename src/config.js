@@ -85,6 +85,16 @@ function loadConfig(rootDir) {
       // ADMIN_ONLY=1：只开管理台，不连 OneBot（NapCat 挂了也能进来看数据）
       only: env.ADMIN_ONLY === '1' || env.ADMIN_ONLY === 'true',
     },
+    monitor: {
+      // MONITOR=0 关闭掉线监控
+      enabled: !(env.MONITOR === '0' || env.MONITOR === 'false'),
+      // 告警出口（企业微信 / 钉钉 / 飞书 / Server 酱 / 通用 JSON webhook），留空则只写日志
+      webhookUrl: env.ALERT_WEBHOOK_URL || '',
+      // 单位是分钟，但下限卡在 30 秒 —— 注意先把分钟换算成秒再比较，
+      // 否则 Math.max(30, 2) 会把默认的 2 分钟顶成 30 分钟。
+      intervalMs: Math.max(30, Number(env.MONITOR_INTERVAL_MIN || 2) * 60) * 1000,
+      cooldownMs: Math.max(1, Number(env.ALERT_COOLDOWN_MIN || 30)) * 60 * 1000,
+    },
   };
 }
 

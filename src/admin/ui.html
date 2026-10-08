@@ -248,6 +248,20 @@ function fmtDur(ms) {
   return m + ' 分 ' + (s % 60) + ' 秒';
 }
 
+function monitorCell(m) {
+  if (!m) return '<span class="mute">未启用</span>';
+  if (!m.enabled) return '<span class="pill">已关闭（MONITOR=0）</span>';
+  const parts = [];
+  if (m.healthy === null || m.healthy === undefined) parts.push('<span class="pill">等待首次探活</span>');
+  else if (m.healthy) parts.push('<span class="pill on">正常</span>');
+  else parts.push('<span class="pill off">异常</span>');
+  if (m.lastCheckAt) parts.push('<span class="dim">' + esc(fmtAgo(m.lastCheckAt)) + '探活</span>');
+  if (!m.webhookConfigured) parts.push('<span class="pill off">未配置告警出口</span>');
+  if (m.alertsSent) parts.push('<span class="dim">已告警 ' + esc(m.alertsSent) + ' 次</span>');
+  if (m.lastReason) parts.push('<span class="dim">· ' + esc(m.lastReason) + '</span>');
+  return parts.join(' ');
+}
+
 function toast(msg, kind) {
   const el = document.createElement('div');
   el.className = 'toast ' + (kind || '');
@@ -395,10 +409,17 @@ async function viewOverview(el) {
       '<div class="body"><dl class="kv">' +
       '<dt>OneBot 连接</dt><dd>' + (bot.connected ? '<span class="pill on">已连接</span>' : '<span class="pill off">未连接</span>') +
         ' <span class="mono dim">' + esc(bot.url || bot.mode || '') + '</span></dd>' +
-      '<dt>重连次数</dt><dd>' + esc(bot.retry === undefined ? '—' : bot.retry) + '</dd>' +
+      '<dt>本次连接时长</dt><dd>' + (bot.connected && bot.connectedMs ? esc(fmtDur(bot.connectedMs)) : '—') + '</dd>' +
+      '<dt>最后收到事件</dt><dd>' + (bot.lastEventAt ? esc(fmtAgo(bot.lastEventAt)) + ' <span class="mono dim">' + esc(fmtTime(bot.lastEventAt)) + '</span>' : '<span class="mute">尚未收到</span>') + '</dd>' +
+      '<dt>累计重连</dt><dd>' + esc(bot.reconnects === undefined ? '—' : bot.reconnects) +
+        (bot.retry ? ' <span class="dim">（正在第 ' + esc(bot.retry) + ' 次退避等待）</span>' : '') + '</dd>' +
+      '<dt>未完成动作</dt><dd>' + esc(bot.pendingCalls === undefined ? '—' : bot.pendingCalls) + '</dd>' +
+      '<dt>健康检查</dt><dd class="mono">GET /healthz <span class="dim">（免登录，供外部探活）</span></dd>' +
+      '<dt>掉线监控</dt><dd>' + monitorCell(d.monitor) + '</dd>' +
       '<dt>大模型总结</dt><dd>' + (d.flags.llm ? '<span class="pill on">已配置</span>' : '<span class="pill off">未配置</span>') + '</dd>' +
       '<dt>PDF 中文字体</dt><dd>' + (d.flags.font ? esc(d.flags.font) : '<span class="pill off">未探测到（导出回退 txt）</span>') + '</dd>' +
       '<dt>运行模式</dt><dd>' + (d.flags.adminOnly ? '仅管理台（未连 OneBot）' : '机器人在线') + '</dd>' +
+      '<dt>进程运行时长</dt><dd>' + esc(fmtDur(p.uptimeMs)) + ' <span class="mono dim">（启动于 ' + esc(fmtTime(p.startedAt)) + '）</span></dd>' +
       '<dt>Node / 平台</dt><dd class="mono">' + esc(p.node) + ' · ' + esc(p.platform) + ' · PID ' + esc(p.pid) + '</dd>' +
       '<dt>数据目录</dt><dd class="mono">' + esc(d.disk.dataDir) + '</dd>' +
       '</dl></div>') +
@@ -766,6 +787,7 @@ async function viewConfig(el) {
     kv('上传限制', { 支持格式: c.upload.exts.join(' '), 单文件上限: fmtBytes(c.upload.maxBytes) }) +
     '<div class="box"><h3>操作</h3><div class="body">' +
     '<button class="btn" data-act="reconnect">强制重连 OneBot</button>' +
+    '<button class="btn" data-act="monitor-check">立即探活（掉线监控）</button>' +
     '<p class="mute" style="margin-bottom:0">配置项来自 .env，改动后需重启进程生效。</p>' +
     '</div></div>';
 }
@@ -860,6 +882,12 @@ document.addEventListener('click', async (e) => {
       case 'reconnect': {
         await api('/onebot/reconnect', { method: 'POST' });
         toast('已触发重连', 'ok');
+        return;
+      }
+      case 'monitor-check': {
+        const r = await api('/monitor/check', { method: 'POST' });
+        const s = r.status || {};
+        toast(s.healthy ? '探活正常：' + (s.lastReason || '') : '探活异常：' + (s.lastReason || ''), s.healthy ? 'ok' : 'err');
         return;
       }
       case 'log-level': logLevel = el.dataset.v; return go('logs');

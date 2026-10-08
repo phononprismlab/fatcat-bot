@@ -118,7 +118,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------- 服务 ----------
 
-function createAdminServer({ config, repo, client, boomerang, startedAt = Date.now() }) {
+function createAdminServer({ config, repo, client, boomerang, monitor, startedAt = Date.now() }) {
   const token = config.admin.token || crypto.randomBytes(12).toString('base64url');
   const tokenGenerated = !config.admin.token;
   const sessions = new Map(); // sid -> 过期时间
@@ -147,13 +147,21 @@ function createAdminServer({ config, repo, client, boomerang, startedAt = Date.n
 
   function clientStatus() {
     if (!client) return { mode: 'admin-only', connected: false };
-    const ws = client.ws;
+    return Object.assign({ mode: 'bot' }, client.stats());
+  }
+
+  // 健康检查：给外部探活（systemd watchdog / Uptime Kuma / 云监控）用。
+  // 故意不鉴权、也故意不含任何业务数据 —— 只回答「活着吗、QQ 连着吗」。
+  function healthPayload() {
+    const bot = clientStatus();
+    const ok = config.admin.only ? true : !!bot.connected;
     return {
-      mode: 'bot',
-      connected: !!(ws && ws.readyState === 1),
-      url: String(client.url).replace(/access_token=[^&]*/, 'access_token=***'),
-      retry: client.retry,
-      hasToken: !!client.token,
+      ok,
+      startedAt,
+      uptimeMs: Date.now() - startedAt,
+      now: Date.now(),
+      mode: config.admin.only ? 'admin-only' : 'bot',
+      bot,
     };
   }
 
@@ -189,6 +197,7 @@ function createAdminServer({ config, repo, client, boomerang, startedAt = Date.n
       },
       data: repo.overview(),
       disk: diskUsage(),
+      monitor: monitor ? monitor.status() : null,
       flags: {
         font: config.fontPath ? path.basename(config.fontPath) : null,
         llm: !!(config.llm.apiKey && config.llm.model),
@@ -225,6 +234,21 @@ function createAdminServer({ config, repo, client, boomerang, startedAt = Date.n
         only: !!config.admin.only,
       },
       upload: { exts: [...TEXT_EXTS], maxBytes: MAX_BYTES },
+      monitor: (() => {
+        // 兼容手工拼出来的 config（测试里就是），别因为少一段就 500
+        const m = config.monitor || { enabled: false, intervalMs: 0, cooldownMs: 0, webhookUrl: '' };
+        let webhook = '（未配置，只会写日志）';
+        if (m.webhookUrl) {
+          // 出口 URL 自带密钥，只回主机名
+          try { webhook = new URL(m.webhookUrl).host; } catch (e) { webhook = '已设置（***）'; }
+        }
+        return {
+          enabled: !!m.enabled,
+          intervalMinutes: m.intervalMs ? Math.round(m.intervalMs / 60000 * 10) / 10 : 0,
+          cooldownMinutes: m.cooldownMs ? Math.round(m.cooldownMs / 60000) : 0,
+          webhook,
+        };
+      })(),
     };
   }
 
@@ -498,6 +522,13 @@ function createAdminServer({ config, repo, client, boomerang, startedAt = Date.n
       return json(res, 200, { ok: true });
     }
 
+    // 手动跑一次掉线探活，立刻拿到结论（不用等下一个周期）
+    if (p === '/api/monitor/check' && m === 'POST') {
+      if (!monitor) return json(res, 400, { error: '掉线监控未启用' });
+      const st = await monitor.run();
+      return json(res, 200, { ok: true, status: st });
+    }
+
     return json(res, 404, { error: '未知接口' });
   }
 
@@ -510,6 +541,10 @@ function createAdminServer({ config, repo, client, boomerang, startedAt = Date.n
         res.end(buf);
       });
       return;
+    }
+    if (req.method === 'GET' && url.pathname === '/healthz') {
+      const h = healthPayload();
+      return json(res, h.ok ? 200 : 503, h);
     }
     if (!url.pathname.startsWith('/api/')) return text(res, 404, 'not found');
     handleApi(req, res, url).catch((e) => {

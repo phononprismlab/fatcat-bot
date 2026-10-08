@@ -1,0 +1,57 @@
+# 肥肥风筝猫 · 管理台反向代理（Caddy）
+#
+# 为什么需要它：管理台默认只绑 127.0.0.1（安全默认值），而且**自身不带 HTTPS**。
+# 想在浏览器里远程用，必须前面套一层带 TLS 的反代。
+#
+# Caddy 的好处：自动申请并续期 Let's Encrypt 证书，配置只有几行。
+#
+# 用法：
+#   1. 把下面两处 admin.example.com 换成你的真实域名，A 记录指向服务器公网 IP
+#   2. 放好配置：cp deploy/Caddyfile /etc/caddy/Caddyfile
+#   3. systemctl reload caddy
+#   4. 确认云厂商安全组放行了 80 和 443（80 是给 ACME 验证用的）
+#
+# 前提：机器人和管理台已经在这台机器上跑着（systemd 或 Docker 都行），
+#       并且监听在 127.0.0.1:8787。
+
+admin.example.com {
+	encode zstd gzip
+
+	reverse_proxy 127.0.0.1:8787 {
+		# 导出大 zip 时 PDF 渲染会慢，别让反代先超时
+		transport http {
+			read_timeout 300s
+			write_timeout 300s
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		# 管理台不该被搜索引擎收录
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+
+	log {
+		output file /var/log/caddy/fatcat-admin.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}
+
+# ---- 可选：只允许特定来源 IP 访问 ----
+# 如果不想让管理台对全网开放，把上面的 reverse_proxy 段落换成这种写法：
+#
+# admin.example.com {
+# 	@blocked not remote_ip 203.0.113.10 198.51.100.0/24
+# 	respond @blocked "forbidden" 403
+# 	reverse_proxy 127.0.0.1:8787
+# }
+#
+# 更彻底的做法是不开 443，直接用 SSH 隧道：
+#   ssh -N -L 8787:127.0.0.1:8787 user@your-server
+# 然后本地浏览器开 http://127.0.0.1:8787/ —— 完全不经过公网。

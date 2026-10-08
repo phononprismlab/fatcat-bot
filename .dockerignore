@@ -1,0 +1,27 @@
+# 构建镜像时不该进上下文的东西
+# 注意：这些只影响 docker build 的上下文，不是 .gitignore 的替代品。
+
+.git
+.gitignore
+.github
+
+# 数据与备份绝不进镜像
+data/
+backups/
+docker-data/
+.env
+*.log
+
+# 测试产物
+scripts/*.py
+**/node_modules
+
+# 文档（镜像里用不到）
+*.md
+!README.md
+
+# 编辑器 / 系统垃圾
+.vscode
+.idea
+.DS_Store
+Thumbs.db

@@ -14,6 +14,29 @@ class OneBotClient {
     this.echoSeq = 0;
     this.closed = false;
     this.retry = 0;
+    // 运维观测用：连接时刻、最后一次收到事件的时刻、累计重连次数
+    this.connectedAt = 0;
+    this.lastEventAt = 0;
+    this.reconnects = 0;
+  }
+
+  // 管理台 / 健康检查用：一眼看出「连着没、多久没消息了」
+  stats() {
+    const ws = this.ws;
+    const connected = !!(ws && ws.readyState === 1);
+    const now = Date.now();
+    return {
+      connected,
+      url: String(this.url).replace(/access_token=[^&]*/, 'access_token=***'),
+      retry: this.retry,
+      reconnects: this.reconnects,
+      connectedAt: this.connectedAt || null,
+      connectedMs: connected && this.connectedAt ? now - this.connectedAt : 0,
+      lastEventAt: this.lastEventAt || null,
+      silentMs: this.lastEventAt ? now - this.lastEventAt : null,
+      pendingCalls: this.pending.size,
+      hasToken: !!this.token,
+    };
   }
 
   start() {
@@ -58,11 +81,17 @@ class OneBotClient {
     this.ws = ws;
 
     ws.onopen = () => {
+      if (this.connectedAt) this.reconnects += 1;
+      this.connectedAt = Date.now();
       this.retry = 0;
       logger.info('OneBot 已连接');
     };
-    ws.onmessage = (ev) => this._onMessage(ev.data);
+    ws.onmessage = (ev) => {
+      this.lastEventAt = Date.now();
+      this._onMessage(ev.data);
+    };
     ws.onclose = () => {
+      this.connectedAt = 0;
       logger.warn('OneBot 连接关闭');
       this._scheduleReconnect();
     };
@@ -132,6 +161,10 @@ class OneBotClient {
   // 获取文件（NapCat 返回本地路径或 url）
   getFile(fileId) {
     return this.call('get_file', { file_id: fileId, file: fileId });
+  }
+  // 探活：账号若被风控 / 挤下线，WS 可能还连着但这个动作会失败或返回空
+  getLoginInfo() {
+    return this.call('get_login_info', {});
   }
 }
 

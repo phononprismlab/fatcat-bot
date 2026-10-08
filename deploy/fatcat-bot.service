@@ -1,0 +1,64 @@
+# 肥肥风筝猫 · 主服务
+#
+# 这份是模板：deploy/install-systemd.sh 会把里面的 @…@ 占位符替换成真实路径后
+# 写入 /etc/systemd/system/fatcat-bot.service。
+# 占位符清单见 install-systemd.sh 的 render() 函数。
+#
+# 注意：这里**故意不写 EnvironmentFile**。配置由程序自己读 <APP_DIR>/.env，
+# 而 systemd 的 EnvironmentFile 解析规则更严（值里有空格/特殊字符就直接让 unit 起不来），
+# 把配置交给程序自己读更不容易踩坑。
+
+[Unit]
+Description=肥肥风筝猫 (fatcat-bot) —— QQ OC 口嗨记录机器人
+Documentation=https://github.com/phononprismlab/fatcat-bot
+After=network-online.target
+Wants=network-online.target
+# 启动失败时不要在几秒内无限重启（比如 .env 写错了，重启一万次也没用）
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=@RUN_USER@
+Group=@RUN_GROUP@
+WorkingDirectory=@APP_DIR@
+ExecStart=@NODE_BIN@ --experimental-sqlite @APP_DIR@/src/index.js
+
+Restart=always
+RestartSec=5
+# 退出码 1 是我们自己的「启动失败」，这种不该被当成崩溃立刻拉起
+RestartPreventExitStatus=1
+TimeoutStopSec=20
+KillMode=mixed
+
+# 数据文件默认只有服务账号可读写
+UMask=0077
+
+# ---- 安全加固 ----
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=@PROTECT_HOME@
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+# 只放开真正需要写的目录
+ReadWritePaths=@APP_DIR@/data @BACKUP_DIR@
+
+# ⚠️ 不要加 MemoryDenyWriteExecute=true —— V8 的 JIT 需要可写可执行内存，
+#    开了这个 Node 会直接崩，而且报错很难懂。
+
+[Install]
+WantedBy=multi-user.target

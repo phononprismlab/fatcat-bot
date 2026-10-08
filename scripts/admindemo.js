@@ -6,6 +6,7 @@ const path = require('node:path');
 const { openDb } = require('../src/db');
 const { createRepo } = require('../src/repo');
 const { createAdminServer } = require('../src/admin/server');
+const { createMonitor } = require('../src/monitor');
 const { loadConfig } = require('../src/config');
 
 const root = path.resolve(__dirname, '..');
@@ -31,6 +32,7 @@ const config = {
   llm: { baseUrl: '', apiKey: '', model: '' },
   boomerangDefaultDays: 3,
   admin: { host: '127.0.0.1', port: PORT, token: TOKEN, sessionTtlMs: 12 * 3600000, only: true },
+  monitor: { enabled: true, webhookUrl: '', intervalMs: 120000, cooldownMs: 1800000 },
 };
 
 const db = openDb(config.dbPath);
@@ -138,7 +140,7 @@ repo.addMessage(s4, U.xi, '希斯', '这句我后来觉得不太好，想删掉'
 repo.deleteMessagesByUserInGroup(U.xi, GROUP2);
 
 (async () => {
-  const admin = createAdminServer({ config, repo, client: null, boomerang: null, startedAt: now - 3 * 3600000 });
+  const admin = createAdminServer({ config, repo, client: null, boomerang: null, monitor: createMonitor({ config, client: null }), startedAt: now - 3 * 3600000 });
   const addr = await admin.start();
   console.log('样例管理台已启动');
   console.log(`  地址：http://127.0.0.1:${addr.port}/`);

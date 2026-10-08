@@ -15,6 +15,9 @@
 - **文件上传**：把 txt/md 直接发给 bot 收进个人库，自动识别 GBK 编码。
 - **数据导出**：`/导出 txt|md|pdf [all|recent N]`，多篇自动打包 zip。数据永远属于用户本人。
 - **Web 管理台**：浏览器里看数据、管用户、查日志、补总结、手动回旋、导出下载。NapCat 挂了也能单独开（`ADMIN_ONLY=1`）。
+- **掉线监控**：定时探活（不只是 WS 连着没，还会问 `get_login_info` 确认**账号本身**在线），
+  异常时经 webhook 告警（企业微信 / 钉钉 / 飞书 / Server 酱 / 通用 JSON），恢复时发恢复通知。
+- **自动备份**：`VACUUM INTO` 一致性快照 + 上传文件 + 计数校验，systemd timer 每日跑，可选异地同步。
 
 ## 技术特点
 
@@ -53,6 +56,31 @@ start.bat         # Windows
 1. 在 NapCat WebUI 里开启 OneBot 11 的 **WebSocket 服务器**（例如监听 `0.0.0.0:3001`），设置 access token。
 2. 把 `.env` 里的 `ONEBOT_WS_URL` 指向该地址（如 `ws://127.0.0.1:3001`），token 填进 `ONEBOT_ACCESS_TOKEN`。
 3. 启动本程序，看到「OneBot 已连接」即成功。
+
+## 部署上线
+
+上面是「本机跑起来」。要**正式挂到服务器上给人用**，看 **[deploy/README.md](deploy/README.md)**，里面是从空服务器到上线的完整流程，含上线自检清单。
+
+两条路二选一：
+
+```bash
+# A · systemd（已装 Node 22.5+ 的机器）
+sudo bash deploy/install-systemd.sh
+
+# B · Docker（干净的新机器，连 NapCat 一起拉起来）
+docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
+```
+
+配套齐了的东西：
+
+| 能力 | 位置 |
+|---|---|
+| 开机自启 + 崩溃自动拉起 | `deploy/fatcat-bot.service` |
+| 每日备份（含轮转、完整性校验、可选异地同步） | `deploy/backup.sh` + `fatcat-backup.timer` |
+| 健康检查（供外部探活，OneBot 掉线返回 503） | `GET /healthz` |
+| 掉线告警（账号掉线也能通知到你） | `src/monitor.js` + `ALERT_WEBHOOK_URL` |
+| 管理台 HTTPS 反代 | `deploy/Caddyfile` / `deploy/nginx.conf.example` |
+| 容器化（含中文字体） | `deploy/Dockerfile` / `deploy/docker-compose.yml` |
 
 ## 指令
 
@@ -94,7 +122,7 @@ ADMIN_ONLY=1 node --experimental-sqlite src/index.js   # 只开管理台，不�
 
 | 分组 | 视图 | 能干什么 |
 |------|------|----------|
-| 运行 | 概览 | 计数卡片、运行状态、最近口嗨/资料、活跃群 |
+| 运行 | 概览 | 计数卡片、运行状态（连接时长 / 最后事件 / 累计重连 / 掉线监控）、最近口嗨/资料、活跃群 |
 | 数据 | 记录会话 | 按状态筛选，看完整对话，**强制结束进行中会话并当场生成片段** |
 | 数据 | 口嗨片段 | 看总结与原始对话，**手动回旋给本人**，重新生成总结，删除 |
 | 数据 | 上传资料 | 看正文，删除（同时清磁盘文件与检索索引） |
@@ -102,8 +130,11 @@ ADMIN_ONLY=1 node --experimental-sqlite src/index.js   # 只开管理台，不�
 | 数据 | 全局检索 | 跨口嗨与资料的关键词检索 |
 | 运营 | 回旋镖 | 预览完整待回旋积压（不是调度器那种每轮一条）、**发送历史**、手动触发一轮 |
 | 运营 | 导出 | 按用户导出 txt/md/pdf，浏览器直接下载 zip |
-| 系统 | 配置 | 查看生效配置（密钥一律打码） |
+| 系统 | 配置 | 查看生效配置（密钥一律打码）、**强制重连 OneBot**、**立即探活** |
 | 系统 | 日志 | 最近 500 条运行日志（内存环形缓冲，重启清空） |
+
+外部探活直接打 `GET /healthz`（免登录，只回 `ok` / 运行时长 / OneBot 连接状态，**不含任何业务数据**）：
+机器人模式下 OneBot 未连接返回 **503**，`ADMIN_ONLY=1` 时恒为 200。
 
 ### 安全默认值
 
@@ -124,6 +155,7 @@ ADMIN_ONLY=1 node --experimental-sqlite src/index.js   # 只开管理台，不�
 ```bash
 npm run selftest      # 记录→捕获→存档→检索→导出→回旋镖 全链路（不连 QQ）
 npm run admintest     # 管理台 API 全量测试（登录/权限/各视图/删除级联/限速）
+npm run deploycheck   # 部署配置自检（/healthz 两条路径、备份产物与轮转、单元文件静态校验）
 npm run pdf:build     # 生成样例 PDF 与子集字体到 data/pdftest/
 npm run pdf:validate  # 校验 PDF 结构 + 用 FreeType 比对子集字形（需 Python + Pillow）
 npm run pdf:verify    # 用 pdf.js 解析 PDF，校验文本可被正确提取（首次运行会拉取 pdf.js）
@@ -144,10 +176,11 @@ src/
   index.js           入口
   config.js          配置加载（.env）+ 中文字体自动探测
   logger.js          日志
+  monitor.js         掉线监控 + webhook 告警（进程活着但账号掉线的唯一发现手段）
   db.js              SQLite 打开 + 建表（含 FTS5）
   repo.js            数据访问
   onebot/
-    client.js        OneBot WS 客户端（echo + 重连）
+    client.js        OneBot WS 客户端（echo + 重连 + 连接状态统计）
     message.js       消息段构造 / 文本提取
   core/
     bot.js           事件处理：记录状态机 + 指令分发
@@ -157,18 +190,28 @@ src/
     upload.js        上传文件解析入库（编码探测 / 配额 / 格式校验）
     boomerang.js     回旋镖调度 + 单条推送（bot 与管理台共用）
   admin/
-    server.js        管理台 HTTP 服务（node:http，路由 + 会话鉴权）
+    server.js        管理台 HTTP 服务（node:http，路由 + 会话鉴权 + /healthz）
     ui.html          管理台单页前端（零依赖，无构建）
   utils/
     time.js, filenames.js, zip.js
     ttf.js           TrueType/TTC 解析
     ttf-subset.js    字形子集化（输出可嵌入 PDF 的 SFNT）
     pdf.js           零依赖 PDF 排版与生成
+deploy/
+  README.md          部署手册（从空服务器到上线）
+  install-systemd.sh 一键装 systemd（幂等，--dry-run 可预览）
+  fatcat-bot.service 主服务单元模板
+  fatcat-backup.service / .timer   每日备份
+  backup.sh          备份包装（轮转 / 校验 / 可选异地同步）
+  Caddyfile, nginx.conf.example    管理台 HTTPS 反代
+  Dockerfile, docker-compose.yml, docker-healthcheck.js
 scripts/
   selftest.js        全链路自测
   admincheck.js      管理台 API 测试
   admindemo.js       本地起一个塞满假数据的管理台（演示/截图用）
   admine2e.mjs       浏览器端到端（CDP 驱动 Chrome，可选）
+  backup.js          VACUUM INTO 一致性快照 + manifest
+  deploycheck.js     部署配置自检
   pdfcheck.js        生成 PDF 样例
   pdfvalidate.py     结构与字体校验
   pdftext.mjs        pdf.js 文本提取校验

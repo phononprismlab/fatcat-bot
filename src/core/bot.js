@@ -2,9 +2,10 @@
 const path = require('node:path');
 const logger = require('../logger');
 const { extractText, findSegments } = require('../onebot/message');
-const { generateSummary } = require('./summary');
 const { buildExport } = require('./export');
 const { ingestUpload } = require('./upload');
+const { finalizeSession } = require('./session');
+const { sendBoomerang } = require('./boomerang');
 const { fmtTime } = require('../utils/time');
 
 function createBot({ config, repo, client }) {
@@ -24,15 +25,43 @@ function createBot({ config, repo, client }) {
     return client.sendPrivateMsg(userId, seg);
   }
 
-  function buildTranscript(messages) {
-    return messages.map((m) => `${m.name}(${m.qq_id}) ${fmtTime(m.ts)}\n${m.content}`).join('\n\n');
+  // 涉及口嗨内容的回执一律走私聊，群里只留一句提示 —— 避免把"你口嗨过什么"贴在群里。
+  // 私聊发不出去（未加好友等）时退回群里，并明确说明。
+  async function replyPrivateFirst(userId, groupId, body, okNote) {
+    if (!groupId) {
+      await reply(userId, null, body);
+      return;
+    }
+    try {
+      await client.sendPrivateMsg(userId, [{ type: 'text', data: { text: body } }]);
+      await reply(userId, groupId, okNote);
+    } catch (e) {
+      logger.warn('私聊发送失败，回退群聊: ' + e.message);
+      await reply(userId, groupId, body + '\n\n（私聊发送失败，已改发到群里）');
+    }
   }
+
+  // 首次在某群开启记录前发的知情同意公告。
+  // 记录窗口会捕获群内其他人的发言，托管档持有第三方数据 —— 必须明示。
+  const GROUP_NOTICE = [
+    '【肥肥风筝猫】本群开始记录口嗨。',
+    '· 记录范围：从现在起，到喊「我口嗨完了」为止，本群所有人的发言（含其他人）',
+    '· 归属：以喊口令的人为准；其他人说的话会一并存进 TA 的记录',
+    '· 用途：只供记录者本人查询与导出，不会主动发到群里',
+    '· 撤回：任何人都可以随时发「/撤回我的发言」，删掉自己在本群被记录的全部发言',
+    '· 继续发言即视为知悉并同意以上说明',
+  ].join('\n');
 
   // ---- 记录状态机 ----
   async function startRecording(userId, groupId) {
     if (repo.getOpenSession(userId)) {
       await reply(userId, groupId, '【肥肥风筝猫】你已经在记录中啦，喊「我口嗨完了」结束～');
       return;
+    }
+    // 每个群只告知一次，避免每次开记录都刷屏
+    if (groupId && !repo.hasGroupNotice(groupId)) {
+      await reply(userId, groupId, GROUP_NOTICE);
+      repo.markGroupNotice(groupId);
     }
     repo.createSession(userId, groupId);
     await reply(userId, groupId, '【肥肥风筝猫】开始记录啦～大家随便聊，口嗨完喊「我口嗨完了」');
@@ -44,22 +73,9 @@ function createBot({ config, repo, client }) {
       await reply(userId, groupId, '【肥肥风筝猫】你现在没有在记录哦');
       return;
     }
-    repo.archiveSession(open.id);
-    const messages = repo.getMessages(open.id);
-    const transcript = buildTranscript(messages);
-
     const user = repo.getUser(userId);
-    let summary = null;
-    if (!user || user.summary_on !== 0) {
-      try {
-        summary = await generateSummary(config, transcript);
-      } catch (e) {
-        logger.warn('生成总结失败: ' + e.message);
-      }
-    }
-
-    const sid = repo.createSnippet(open.id, userId, summary);
-    repo.indexAdd(transcript, userId, 'snippet', sid);
+    const withSummary = !user || user.summary_on !== 0;
+    const { summary } = await finalizeSession({ config, repo, session: open, withSummary });
 
     await reply(userId, groupId, '【肥肥风筝猫已经记录下你的口嗨。】');
     const priv = summary ? `本次口嗨总结：\n${summary}` : '（本次未生成总结，原文已存档）';
@@ -80,6 +96,8 @@ function createBot({ config, repo, client }) {
   }
 
   // ---- 指令 ----
+  const KIND_LABEL = { snippet: '口嗨', file: '资料', summary: '总结' };
+
   async function cmdQuery(ctx) {
     const kw = ctx.args.join(' ');
     if (!kw) {
@@ -92,11 +110,14 @@ function createBot({ config, repo, client }) {
       return;
     }
     const lines = hits.map((h, i) => {
-      const src = h.kind === 'file' ? '资料' : '口嗨';
+      const src = KIND_LABEL[h.kind] || '口嗨';
       const excerpt = String(h.content).replace(/\s+/g, ' ').slice(0, 80);
       return `${i + 1}. [${src}#${h.ref_id}] ${excerpt}…`;
     });
-    await reply(ctx.userId, ctx.groupId, `找到 ${hits.length} 条：\n` + lines.join('\n'));
+    const body = `【肥肥风筝猫】找到 ${hits.length} 条：\n` + lines.join('\n') +
+      '\n\n（想带走全文：/导出 pdf #编号）';
+    // 命中含口嗨原文摘录，走私聊，别贴群
+    await replyPrivateFirst(ctx.userId, ctx.groupId, body, '【肥肥风筝猫】查询结果已发到你的私聊～');
   }
 
   async function cmdExport(ctx) {
@@ -113,6 +134,10 @@ function createBot({ config, repo, client }) {
       await reply(ctx.userId, ctx.groupId, '导出失败：' + e.message);
       return;
     }
+    if (result && result.error) {
+      await reply(ctx.userId, ctx.groupId, '【肥肥风筝猫】' + result.error);
+      return;
+    }
     if (!result || !result.files.length) {
       await reply(ctx.userId, ctx.groupId, '你还没有可导出的口嗨或资料');
       return;
@@ -121,10 +146,54 @@ function createBot({ config, repo, client }) {
     const sendName = result.zipName || path.basename(sendPath);
     try {
       await client.uploadPrivateFile(ctx.userId, sendPath, sendName);
-      await reply(ctx.userId, ctx.groupId, `已导出 ${result.count} 篇，文件已发到你的私聊：${sendName}${result.note || ''}`);
+      await reply(
+        ctx.userId,
+        ctx.groupId,
+        `已导出 ${result.count} 篇（范围：${result.scopeNote || scope}），文件已发到你的私聊：${sendName}${result.note || ''}`
+      );
     } catch (e) {
       await reply(ctx.userId, ctx.groupId, `导出完成（${result.count} 篇），文件在服务器：${sendPath}（发送失败：${e.message}）`);
     }
+  }
+
+  // 撤回：删掉自己在本群被记录的全部发言（真删），并重建受影响片段的检索索引
+  async function cmdRedact(ctx) {
+    if (!ctx.isGroup) {
+      await reply(ctx.userId, ctx.groupId, '【肥肥风筝猫】这个指令要在群里用——它删的是「你在某个群被记录的发言」');
+      return;
+    }
+    const r = repo.deleteMessagesByUserInGroup(ctx.userId, ctx.groupId);
+    if (!r.removed) {
+      await reply(ctx.userId, ctx.groupId, '【肥肥风筝猫】本群没有你的被记录发言，不用撤回～');
+      return;
+    }
+    let rebuilt = 0;
+    for (const sid of r.sessionIds) {
+      try {
+        if (repo.reindexSnippet(sid)) rebuilt++;
+      } catch (e) {
+        logger.warn('重建索引失败 session#' + sid + ': ' + e.message);
+      }
+    }
+    await reply(
+      ctx.userId,
+      ctx.groupId,
+      `【肥肥风筝猫】已删除你在本群被记录的 ${r.removed} 条发言（涉及 ${rebuilt} 篇记录）。\n` +
+        '相关检索索引已同步更新，之后 /查询 不会再搜到这些内容。'
+    );
+  }
+
+  async function cmdUpload(ctx) {
+    await reply(
+      ctx.userId,
+      ctx.groupId,
+      [
+        '【肥肥风筝猫】直接把文件发给我就行（群聊、私聊都可以），不用指令。',
+        '· 支持格式：txt / md',
+        '· 单个文件上限 2MB',
+        '· 收到后我会解析成文本收进你的资料库，以后 /查询 就能搜到',
+      ].join('\n')
+    );
   }
 
   async function cmdBoomerang(ctx) {
@@ -148,9 +217,7 @@ function createBot({ config, repo, client }) {
       return;
     }
     const body = cand.kind === 'snippet' ? cand.summary || '（片段）' : `你上传的资料《${cand.summary}》`;
-    await client.sendPrivateMsg(ctx.userId, [{ type: 'text', data: { text: `🪃 回旋镖！\n${body}\n\n…还有后续吗？` } }]);
-    if (cand.kind === 'snippet') repo.setSnippetSent(cand.id, Date.now());
-    else repo.setFileSent(cand.id, Date.now());
+    await sendBoomerang({ client, repo, userId: ctx.userId, cand, body });
     await reply(ctx.userId, ctx.groupId, '回旋镖已私聊发给你啦～');
   }
 
@@ -172,7 +239,8 @@ function createBot({ config, repo, client }) {
   async function cmdMine(ctx) {
     const s = repo.stats(ctx.userId);
     const last = s.lastCreatedAt ? fmtTime(s.lastCreatedAt) : '暂无';
-    await reply(ctx.userId, ctx.groupId, `你有 ${s.snippets} 篇口嗨、${s.files} 份资料\n最近一篇：${last}`);
+    const body = `你有 ${s.snippets} 篇口嗨、${s.files} 份资料\n最近一篇：${last}`;
+    await replyPrivateFirst(ctx.userId, ctx.groupId, body, '【肥肥风筝猫】统计已发到你的私聊～');
   }
 
   async function cmdHelp(ctx) {
@@ -182,11 +250,15 @@ function createBot({ config, repo, client }) {
       [
         '【肥肥风筝猫】指令：',
         '我要口嗨了 / 我口嗨完了 —— 开始/结束记录（记录本群所有人的发言）',
-        '/查询 <关键词> —— 搜自己的口嗨',
-        '/导出 <txt|md|pdf> [all|recent N] —— 导出并打包',
+        '直接发文件 —— 收录 txt / md 资料（或 /上传 看说明）',
+        '/查询 <关键词> —— 搜自己的口嗨与资料（结果走私聊）',
+        '/导出 <txt|md|pdf> [范围] —— 导出并打包',
+        '    范围：all（默认）/ recent 5 / 3（最近3篇）/ #12（指定某一篇）/ 片段12 / 资料12',
         '/回旋镖 [设置 <天数>] —— 手动回旋 / 设置间隔',
         '/总结 on|off —— 开关口嗨总结',
         '/我的 —— 我的统计',
+        '/撤回我的发言 —— 删掉自己在本群被记录的全部发言',
+        '/帮助 —— 这条列表',
       ].join('\n')
     );
   }
@@ -197,6 +269,8 @@ function createBot({ config, repo, client }) {
     回旋镖: cmdBoomerang,
     总结: cmdSummary,
     我的: cmdMine,
+    上传: cmdUpload,
+    撤回我的发言: cmdRedact,
     帮助: cmdHelp,
     help: cmdHelp,
   };
@@ -206,7 +280,8 @@ function createBot({ config, repo, client }) {
     try {
       const r = await ingestUpload({ config, repo, client, userId, fileId, fileName, directUrl });
       if (r.ok) {
-        await reply(userId, groupId, `【肥肥风筝猫】已收录你的资料：《${r.name}》（${r.chars} 字）\n以后用 /查询 就能搜到它`);
+        const enc = r.encoding && r.encoding.indexOf('gb18030') === 0 ? `，按 ${r.encoding} 解码` : '';
+        await reply(userId, groupId, `【肥肥风筝猫】已收录你的资料：《${r.name}》（${r.chars} 字${enc}）\n以后用 /查询 就能搜到它`);
       } else {
         await reply(userId, groupId, `【肥肥风筝猫】${r.reason}`);
       }

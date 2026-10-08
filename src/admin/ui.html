@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>肥肥风筝猫 · 管理台</title>
+<style>
+  :root {
+    --bg: #12141a;
+    --panel: #1a1d25;
+    --panel-2: #20242e;
+    --line: #2b3040;
+    --fg: #e6e9f0;
+    --fg-dim: #98a0b3;
+    --fg-mute: #6b7488;
+    --accent: #5aa9e6;
+    --ok: #4ec9a0;
+    --warn: #e6b455;
+    --danger: #e06c75;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 13px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", Roboto, sans-serif;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  a { color: var(--accent); }
+
+  /* ---- 登录 ---- */
+  #login {
+    position: fixed; inset: 0; display: none; place-items: center;
+    background: var(--bg); z-index: 100;
+  }
+  #login.show { display: grid; }
+  #login .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 32px; width: 340px; text-align: center;
+  }
+  #login h1 { font-size: 18px; margin: 0 0 6px; }
+  #login p { color: var(--fg-dim); margin: 0 0 20px; font-size: 12px; }
+  #login input {
+    width: 100%; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line);
+    border-radius: var(--radius); outline: none;
+  }
+  #login input:focus { border-color: var(--accent); }
+  #login button { width: 100%; margin-top: 12px; padding: 10px; }
+
+  /* ---- 布局 ---- */
+  #app { display: none; height: 100%; grid-template-columns: 190px 1fr; }
+  #app.show { display: grid; }
+  aside {
+    background: var(--panel); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  aside .brand { padding: 18px 16px 14px; font-weight: 600; font-size: 14px; letter-spacing: .3px; }
+  aside .brand small { display: block; color: var(--fg-mute); font-weight: 400; font-size: 11px; margin-top: 2px; }
+  aside nav { flex: 1; overflow-y: auto; padding: 0 8px 12px; }
+  aside nav button {
+    display: block; width: 100%; text-align: left; background: none; border: 0;
+    padding: 8px 10px; border-radius: 6px; color: var(--fg-dim); cursor: pointer;
+  }
+  aside nav button:hover { background: var(--panel-2); color: var(--fg); }
+  aside nav button.active { background: #2a3a4d; color: #cfe6ff; }
+  aside nav .grp { color: var(--fg-mute); font-size: 11px; padding: 14px 10px 6px; }
+  main { display: flex; flex-direction: column; overflow: hidden; }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  header h2 { font-size: 15px; margin: 0; flex: 1; }
+  #content { flex: 1; overflow-y: auto; padding: 20px; }
+
+  /* ---- 组件 ---- */
+  button.btn {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 12px; cursor: pointer; color: var(--fg);
+  }
+  button.btn:hover { border-color: var(--accent); }
+  button.btn.primary { background: #2f6ea8; border-color: #2f6ea8; }
+  button.btn.primary:hover { background: #3a82c4; }
+  button.btn.danger { color: var(--danger); }
+  button.btn.danger:hover { border-color: var(--danger); background: #3a262b; }
+  button.btn:disabled { opacity: .45; cursor: not-allowed; }
+  button.mini { padding: 3px 8px; font-size: 12px; }
+
+  input.field, select.field {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; outline: none;
+  }
+  input.field:focus, select.field:focus { border-color: var(--accent); }
+  input.field.sm { width: 70px; padding: 3px 6px; }
+
+  .pill { padding: 2px 9px; border-radius: 99px; font-size: 11px; border: 1px solid var(--line); color: var(--fg-dim); }
+  .pill.on { color: var(--ok); border-color: #2c5c4c; background: #17322b; }
+  .pill.off { color: var(--danger); border-color: #5c2c33; background: #33191d; }
+  .tag { padding: 1px 7px; border-radius: 4px; font-size: 11px; background: var(--panel-2); color: var(--fg-dim); }
+  .tag.open { background: #17322b; color: var(--ok); }
+  .tag.archived { background: #2a2d36; color: var(--fg-mute); }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px;
+  }
+  .card .k { color: var(--fg-dim); font-size: 11px; }
+  .card .v { font-size: 22px; font-weight: 600; margin-top: 4px; letter-spacing: .5px; }
+  .card .s { color: var(--fg-mute); font-size: 11px; margin-top: 2px; }
+
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 18px; }
+  .box > h3 { margin: 0; padding: 12px 16px; font-size: 13px; border-bottom: 1px solid var(--line); color: var(--fg-dim); font-weight: 500; }
+  .box > .body { padding: 14px 16px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--fg-dim); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+  tbody tr:hover { background: var(--panel-2); }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .dim { color: var(--fg-dim); }
+  .mute { color: var(--fg-mute); }
+  .nowrap { white-space: nowrap; }
+  .empty { padding: 28px; text-align: center; color: var(--fg-mute); }
+
+  .kv { display: grid; grid-template-columns: 200px 1fr; gap: 6px 16px; }
+  .kv dt { color: var(--fg-dim); }
+  .kv dd { margin: 0; word-break: break-all; }
+
+  .msgs { max-height: 46vh; overflow-y: auto; }
+  .msg { padding: 8px 0; border-bottom: 1px dashed var(--line); }
+  .msg:last-child { border-bottom: 0; }
+  .msg .who { color: var(--accent); font-size: 12px; }
+  .msg .who .t { color: var(--fg-mute); margin-left: 8px; }
+  .msg .txt { white-space: pre-wrap; word-break: break-word; margin-top: 2px; }
+  .msg.rec { background: #1d2530; border-radius: 6px; padding: 8px 10px; }
+
+  pre.content {
+    white-space: pre-wrap; word-break: break-word; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 6px; padding: 12px;
+    max-height: 46vh; overflow: auto; margin: 0; font-size: 12px; line-height: 1.7;
+  }
+  .summary {
+    background: #1b2a33; border-left: 3px solid var(--accent); border-radius: 0 6px 6px 0;
+    padding: 10px 14px; white-space: pre-wrap; word-break: break-word;
+  }
+
+  /* ---- 弹层 ---- */
+  #modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; z-index: 60; }
+  #modal.show { display: block; }
+  #modal .sheet {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: min(860px, 92vw); max-height: 88vh; overflow: auto;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  }
+  #modal .sheet > header { border-radius: 12px 12px 0 0; position: sticky; top: 0; background: var(--panel); z-index: 2; }
+  #modal .sheet .body { padding: 16px 20px 22px; }
+  .row-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 90; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+  .toast {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 8px 16px; max-width: 70vw;
+  }
+  .toast.ok { border-color: #2c5c4c; color: var(--ok); }
+  .toast.err { border-color: #5c2c33; color: var(--danger); }
+
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .logline { font-family: ui-monospace, Consolas, monospace; font-size: 12px; padding: 3px 0; border-bottom: 1px solid #1f232c; display: flex; gap: 10px; }
+  .logline .lv { width: 48px; flex: none; }
+  .logline.info .lv { color: var(--accent); }
+  .logline.warn .lv { color: var(--warn); }
+  .logline.error .lv { color: var(--danger); }
+  .logline.debug .lv { color: var(--fg-mute); }
+  .logline .m { white-space: pre-wrap; word-break: break-word; }
+</style>
+</head>
+<body>
+
+<div id="login">
+  <form class="card" id="login-form">
+    <h1>肥肥风筝猫 管理台</h1>
+    <p>请输入 ADMIN_TOKEN 口令</p>
+    <input id="login-token" type="password" placeholder="口令" autocomplete="current-password" autofocus>
+    <button class="btn primary" type="submit">进入</button>
+  </form>
+</div>
+
+<div id="app">
+  <aside>
+    <div class="brand">肥肥风筝猫<small>管理台</small></div>
+    <nav id="nav"></nav>
+  </aside>
+  <main>
+    <header>
+      <h2 id="title">概览</h2>
+      <span id="conn" class="pill">连接中…</span>
+      <button class="btn mini" data-act="refresh">刷新</button>
+      <button class="btn mini" data-act="logout">退出</button>
+    </header>
+    <section id="content"><div class="empty">加载中…</div></section>
+  </main>
+</div>
+
+<div id="modal"><div class="sheet"><header><h2 id="modal-title"></h2><button class="btn mini" data-act="close-modal">关闭</button></header><div class="body" id="modal-body"></div></div></div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+/* ---------------- 基础工具 ---------------- */
+
+const $ = (s) => document.querySelector(s);
+const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+// 所有来自数据库的内容（昵称、消息、文件名、总结、日志）都必须过这里
+const esc = (s) => String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, (c) => ESC_MAP[c]);
+
+const pad = (n) => String(n).padStart(2, '0');
+function fmtTime(ms) {
+  if (!ms) return '—';
+  const d = new Date(ms);
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' +
+    pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+}
+function fmtAgo(ms) {
+  if (!ms) return '—';
+  const s = Math.floor((Date.now() - ms) / 1000);
+  if (s < 60) return s + ' 秒前';
+  if (s < 3600) return Math.floor(s / 60) + ' 分钟前';
+  if (s < 86400) return Math.floor(s / 3600) + ' 小时前';
+  return Math.floor(s / 86400) + ' 天前';
+}
+function fmtBytes(n) {
+  if (!n) return '0 B';
+  const u = ['B', 'KB', 'MB', 'GB'];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return (i === 0 ? v : v.toFixed(1)) + ' ' + u[i];
+}
+function fmtDur(ms) {
+  const s = Math.floor(ms / 1000);
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d) return d + ' 天 ' + h + ' 小时';
+  if (h) return h + ' 小时 ' + m + ' 分';
+  return m + ' 分 ' + (s % 60) + ' 秒';
+}
+
+function toast(msg, kind) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + (kind || '');
+  el.textContent = msg;
+  $('#toast').appendChild(el);
+  setTimeout(() => el.remove(), 3600);
+}
+
+async function api(path, opts) {
+  const res = await fetch('/api' + path, Object.assign({
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+  }, opts || {}));
+  if (res.status === 401) { showLogin(); throw new Error('未登录'); }
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) throw new Error('HTTP ' + res.status + '：' + (await res.text()).slice(0, 200));
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+  return data;
+}
+
+/* ---------------- 通用片段 ---------------- */
+
+function table(cols, rows) {
+  if (!rows.length) return '<div class="empty">暂无数据</div>';
+  return '<table><thead><tr>' +
+    cols.map((c) => '<th' + (c.num ? ' class="num"' : '') + '>' + esc(c.t) + '</th>').join('') +
+    '</tr></thead><tbody>' +
+    rows.map((r) => '<tr>' + r.map((cell, i) => '<td' + (cols[i] && cols[i].num ? ' class="num"' : '') + '>' + cell + '</td>').join('') + '</tr>').join('') +
+    '</tbody></table>';
+}
+
+function box(title, inner, extra) {
+  return '<div class="box"><h3>' + esc(title) + (extra || '') + '</h3>' + inner + '</div>';
+}
+
+function userCell(row) {
+  return esc(row.display_name || '（无昵称）') + ' <span class="mute mono">' + esc(row.qq_id) + '</span>';
+}
+
+function openModal(title, html) {
+  $('#modal-title').textContent = title;
+  $('#modal-body').innerHTML = html;
+  $('#modal').classList.add('show');
+}
+function closeModal() {
+  $('#modal').classList.remove('show');
+  $('#modal-body').innerHTML = '';
+}
+
+function confirmDialog(title, message, confirmLabel) {
+  return new Promise((resolve) => {
+    openModal(title,
+      '<p>' + esc(message) + '</p>' +
+      '<div class="row-actions"><button class="btn danger" id="cf-yes">' + esc(confirmLabel || '确认') + '</button>' +
+      '<button class="btn" id="cf-no">取消</button></div>');
+    $('#cf-yes').onclick = () => { closeModal(); resolve(true); };
+    $('#cf-no').onclick = () => { closeModal(); resolve(false); };
+  });
+}
+
+/* ---------------- 视图 ---------------- */
+
+const VIEWS = {
+  overview: { label: '概览', group: '运行', render: viewOverview },
+  sessions: { label: '记录会话', group: '数据', render: viewSessions },
+  snippets: { label: '口嗨片段', group: '数据', render: viewSnippets },
+  files: { label: '上传资料', group: '数据', render: viewFiles },
+  users: { label: '用户', group: '数据', render: viewUsers },
+  search: { label: '全局检索', group: '数据', render: viewSearch },
+  boomerangs: { label: '回旋镖', group: '运营', render: viewBoomerangs },
+  export: { label: '导出', group: '运营', render: viewExport },
+  config: { label: '配置', group: '系统', render: viewConfig },
+  logs: { label: '日志', group: '系统', render: viewLogs },
+};
+
+let current = 'overview';
+let timers = [];
+
+function clearTimers() {
+  timers.forEach(clearInterval);
+  timers = [];
+}
+
+async function go(name) {
+  current = name;
+  clearTimers();
+  closeModal();
+  document.querySelectorAll('#nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
+  $('#title').textContent = VIEWS[name].label;
+  const content = $('#content');
+  content.innerHTML = '<div class="empty">加载中…</div>';
+  try {
+    await VIEWS[name].render(content);
+  } catch (e) {
+    content.innerHTML = '<div class="empty">加载失败：' + esc(e.message) + '</div>';
+  }
+}
+
+function buildNav() {
+  const nav = $('#nav');
+  let html = '';
+  let lastGroup = '';
+  for (const [key, v] of Object.entries(VIEWS)) {
+    if (v.group !== lastGroup) {
+      html += '<div class="grp">' + esc(v.group) + '</div>';
+      lastGroup = v.group;
+    }
+    html += '<button data-view="' + key + '">' + esc(v.label) + '</button>';
+  }
+  nav.innerHTML = html;
+  nav.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-view]');
+    if (b) go(b.dataset.view);
+  });
+}
+
+/* ---- 概览 ---- */
+
+async function viewOverview(el) {
+  const d = await api('/overview');
+  const p = d.process;
+  const data = d.data;
+  const bot = d.bot;
+
+  setConn(bot);
+
+  const cards = [
+    ['用户', data.users, ''],
+    ['记录会话', data.sessions, data.openSessions ? data.openSessions + ' 个进行中' : '无进行中'],
+    ['捕获消息', data.messages, data.lastMessageAt ? '最近 ' + fmtAgo(data.lastMessageAt) : ''],
+    ['口嗨片段', data.snippets, data.summarized + ' 篇有总结'],
+    ['上传资料', data.files, data.lastUploadAt ? '最近 ' + fmtAgo(data.lastUploadAt) : ''],
+    ['检索索引', data.indexRows, ''],
+    ['数据库', fmtBytes(d.disk.db), '导出 ' + fmtBytes(d.disk.exports.bytes) + ' / 上传 ' + fmtBytes(d.disk.uploads.bytes)],
+    ['已运行', fmtDur(p.uptimeMs), '内存 ' + fmtBytes(p.rss)],
+  ];
+
+  el.innerHTML =
+    '<div class="cards">' + cards.map((c) =>
+      '<div class="card"><div class="k">' + esc(c[0]) + '</div><div class="v">' + esc(c[1]) + '</div>' +
+      '<div class="s">' + esc(c[2] || ' ') + '</div></div>').join('') + '</div>' +
+
+    box('运行状态',
+      '<div class="body"><dl class="kv">' +
+      '<dt>OneBot 连接</dt><dd>' + (bot.connected ? '<span class="pill on">已连接</span>' : '<span class="pill off">未连接</span>') +
+        ' <span class="mono dim">' + esc(bot.url || bot.mode || '') + '</span></dd>' +
+      '<dt>重连次数</dt><dd>' + esc(bot.retry === undefined ? '—' : bot.retry) + '</dd>' +
+      '<dt>大模型总结</dt><dd>' + (d.flags.llm ? '<span class="pill on">已配置</span>' : '<span class="pill off">未配置</span>') + '</dd>' +
+      '<dt>PDF 中文字体</dt><dd>' + (d.flags.font ? esc(d.flags.font) : '<span class="pill off">未探测到（导出回退 txt）</span>') + '</dd>' +
+      '<dt>运行模式</dt><dd>' + (d.flags.adminOnly ? '仅管理台（未连 OneBot）' : '机器人在线') + '</dd>' +
+      '<dt>Node / 平台</dt><dd class="mono">' + esc(p.node) + ' · ' + esc(p.platform) + ' · PID ' + esc(p.pid) + '</dd>' +
+      '<dt>数据目录</dt><dd class="mono">' + esc(d.disk.dataDir) + '</dd>' +
+      '</dl></div>') +
+
+    box('最近口嗨', table(
+      [{ t: 'ID', num: true }, { t: '归属' }, { t: '摘要' }, { t: '时间' }, { t: '' }],
+      data.recentSnippets.map((s) => [
+        esc(s.id), userCell(s),
+        s.summary_head ? '<span class="dim">' + esc(s.summary_head) + (s.summary_head.length >= 80 ? '…' : '') + '</span>' : '<span class="mute">（无总结）</span>',
+        '<span class="nowrap">' + esc(fmtTime(s.created_at)) + '</span>',
+        '<button class="btn mini" data-act="snippet" data-id="' + esc(s.id) + '">查看</button>',
+      ])
+    )) +
+
+    box('最近资料', table(
+      [{ t: 'ID', num: true }, { t: '归属' }, { t: '文件名' }, { t: '时间' }, { t: '' }],
+      data.recentFiles.map((f) => [
+        esc(f.id), userCell(f), esc(f.filename), '<span class="nowrap">' + esc(fmtTime(f.uploaded_at)) + '</span>',
+        '<button class="btn mini" data-act="file" data-id="' + esc(f.id) + '">查看</button>',
+      ])
+    )) +
+
+    box('活跃群', table(
+      [{ t: '群号' }, { t: '会话数', num: true }, { t: '最近活动' }],
+      (data.groups || []).map((g) => [
+        '<span class="mono">' + esc(g.group_id) + '</span>', esc(g.session_count), esc(fmtTime(g.last_active)),
+      ])
+    ));
+}
+
+function setConn(bot) {
+  const el = $('#conn');
+  if (bot.connected) {
+    el.className = 'pill on';
+    el.textContent = 'OneBot 已连接';
+  } else if (bot.mode === 'admin-only') {
+    el.className = 'pill';
+    el.textContent = '仅管理台';
+  } else {
+    el.className = 'pill off';
+    el.textContent = 'OneBot 未连接';
+  }
+}
+
+/* ---- 会话 ---- */
+
+let sessionFilter = 'all';
+
+async function viewSessions(el) {
+  const q = sessionFilter === 'all' ? '' : '?status=' + sessionFilter;
+  const d = await api('/sessions' + q);
+  el.innerHTML =
+    '<div class="toolbar">' +
+    ['all', 'open', 'archived'].map((s) =>
+      '<button class="btn mini' + (sessionFilter === s ? ' primary' : '') + '" data-act="session-filter" data-v="' + s + '">' +
+      ({ all: '全部', open: '进行中', archived: '已归档' })[s] + '</button>').join('') +
+    '<span class="mute">共 ' + d.items.length + ' 条</span></div>' +
+    table(
+      [{ t: 'ID', num: true }, { t: '发起人' }, { t: '群' }, { t: '状态' }, { t: '消息', num: true }, { t: '开始时间' }, { t: '结束时间' }, { t: '' }],
+      d.items.map((s) => [
+        esc(s.id), userCell(s), '<span class="mono">' + esc(s.group_id || '私聊') + '</span>',
+        '<span class="tag ' + (s.status === 'open' ? 'open' : 'archived') + '">' + (s.status === 'open' ? '进行中' : '已归档') + '</span>',
+        esc(s.message_count), '<span class="nowrap">' + esc(fmtTime(s.start_time)) + '</span>',
+        '<span class="nowrap">' + esc(s.end_time ? fmtTime(s.end_time) : '—') + '</span>',
+        '<button class="btn mini" data-act="session" data-id="' + esc(s.id) + '">查看</button>',
+      ])
+    );
+}
+
+async function showSession(id) {
+  const d = await api('/sessions/' + id);
+  const s = d.session;
+  openModal('会话 #' + s.id,
+    '<dl class="kv">' +
+    '<dt>发起人</dt><dd>' + userCell(s) + '</dd>' +
+    '<dt>群号</dt><dd class="mono">' + esc(s.group_id || '私聊') + '</dd>' +
+    '<dt>状态</dt><dd>' + (s.status === 'open' ? '<span class="tag open">进行中</span>' : '<span class="tag archived">已归档</span>') + '</dd>' +
+    '<dt>时间</dt><dd>' + esc(fmtTime(s.start_time)) + ' → ' + esc(s.end_time ? fmtTime(s.end_time) : '（未结束）') + '</dd>' +
+    '<dt>消息数</dt><dd>' + esc(s.message_count) + (d.truncated ? '（仅显示前 2000 条）' : '') + '</dd>' +
+    '</dl>' +
+    '<div class="box" style="margin-top:16px"><h3>对话内容</h3><div class="body msgs">' +
+    (d.messages.length ? d.messages.map((m) =>
+      '<div class="msg' + (m.is_recorder ? ' rec' : '') + '"><div class="who">' + esc(m.name || '（无昵称）') +
+      ' <span class="mono mute">' + esc(m.qq_id) + '</span><span class="t">' + esc(fmtTime(m.ts)) + '</span>' +
+      (m.is_recorder ? ' <span class="tag">记录者</span>' : '') + '</div><div class="txt">' + esc(m.content) + '</div></div>'
+    ).join('') : '<div class="empty">没有捕获到消息</div>') +
+    '</div></div>' +
+    (s.status === 'open'
+      ? '<div class="row-actions">' +
+        '<button class="btn danger" data-act="archive" data-id="' + esc(s.id) + '">强制结束并生成片段</button>' +
+        '<button class="btn" data-act="archive-nosum" data-id="' + esc(s.id) + '">结束（不调大模型）</button>' +
+        '</div>'
+      : ''));
+}
+
+async function archiveSession(id, summarize) {
+  const ok = await confirmDialog('结束会话', summarize
+    ? '将立即归档会话，并调用大模型生成总结。确认？'
+    : '将立即归档会话，不调用大模型。确认？', '结束');
+  if (!ok) return;
+  const r = await api('/sessions/' + id + '/archive', { method: 'POST', body: JSON.stringify({ summarize }) });
+  toast('会话已结束，生成片段 #' + r.snippetId + '（' + r.messageCount + ' 条）', 'ok');
+  closeModal();
+  go(current);
+}
+
+/* ---- 片段 ---- */
+
+async function viewSnippets(el) {
+  const d = await api('/snippets?limit=200');
+  el.innerHTML =
+    '<div class="toolbar"><span class="mute">最近 ' + d.items.length + ' 篇</span></div>' +
+    table(
+      [{ t: 'ID', num: true }, { t: '归属' }, { t: '消息', num: true }, { t: '创建时间' }, { t: '最近回旋' }, { t: '总结' }, { t: '' }],
+      d.items.map((s) => [
+        esc(s.id), userCell(s), esc(s.message_count),
+        '<span class="nowrap">' + esc(fmtTime(s.created_at)) + '</span>',
+        '<span class="nowrap">' + esc(s.last_sent ? fmtAgo(s.last_sent) : '未回旋') + '</span>',
+        s.summary_head ? '<span class="dim">' + esc(s.summary_head) + (s.summary_len > 120 ? '…' : '') + '</span>'
+                       : '<span class="mute">无</span>',
+        '<button class="btn mini" data-act="snippet" data-id="' + esc(s.id) + '">查看</button>',
+      ])
+    );
+}
+
+async function showSnippet(id) {
+  const s = await api('/snippets/' + id);
+  openModal('片段 #' + s.id,
+    '<dl class="kv">' +
+    '<dt>归属</dt><dd>' + esc(s.display_name || '（无昵称）') + ' <span class="mono mute">' + esc(s.qq_id) + '</span></dd>' +
+    '<dt>来源会话</dt><dd class="mono">#' + esc(s.session_id) + ' · 群 ' + esc(s.group_id || '私聊') + '</dd>' +
+    '<dt>创建时间</dt><dd>' + esc(fmtTime(s.created_at)) + '</dd>' +
+    '<dt>最近回旋</dt><dd>' + esc(s.last_sent ? fmtTime(s.last_sent) : '从未') + '</dd>' +
+    '</dl>' +
+    '<div class="box" style="margin-top:16px"><h3>大模型总结</h3><div class="body">' +
+    (s.summary ? '<div class="summary">' + esc(s.summary) + '</div>' : '<span class="mute">（无总结）</span>') +
+    '</div></div>' +
+    '<div class="box"><h3>对话内容（' + s.messages.length + ' 条）</h3><div class="body msgs">' +
+    (s.messages.length ? s.messages.map((m) =>
+      '<div class="msg' + (m.is_recorder ? ' rec' : '') + '"><div class="who">' + esc(m.name || '（无昵称）') +
+      ' <span class="mono mute">' + esc(m.qq_id) + '</span><span class="t">' + esc(fmtTime(m.ts)) + '</span></div>' +
+      '<div class="txt">' + esc(m.content) + '</div></div>'
+    ).join('') : '<div class="empty">没有内容</div>') +
+    '</div></div>' +
+    '<div class="row-actions">' +
+    '<button class="btn" data-act="resummarize" data-id="' + esc(s.id) + '">重新生成总结</button>' +
+    '<button class="btn" data-act="boom" data-id="' + esc(s.id) + '">手动回旋给对方</button>' +
+    '<button class="btn danger" data-act="del-snippet" data-id="' + esc(s.id) + '">删除片段</button>' +
+    '</div>');
+}
+
+/* ---- 资料 ---- */
+
+async function viewFiles(el) {
+  const d = await api('/files?limit=200');
+  el.innerHTML =
+    '<div class="toolbar"><span class="mute">最近 ' + d.items.length + ' 份</span></div>' +
+    table(
+      [{ t: 'ID', num: true }, { t: '归属' }, { t: '文件名' }, { t: '字数', num: true }, { t: '上传时间' }, { t: '最近回旋' }, { t: '' }],
+      d.items.map((f) => [
+        esc(f.id), userCell(f), esc(f.filename), esc(f.chars),
+        '<span class="nowrap">' + esc(fmtTime(f.uploaded_at)) + '</span>',
+        '<span class="nowrap">' + esc(f.last_sent ? fmtAgo(f.last_sent) : '未回旋') + '</span>',
+        '<button class="btn mini" data-act="file" data-id="' + esc(f.id) + '">查看</button>',
+      ])
+    );
+}
+
+async function showFile(id) {
+  const f = await api('/files/' + id);
+  openModal('资料 #' + f.id,
+    '<dl class="kv">' +
+    '<dt>归属</dt><dd>' + esc(f.display_name || '（无昵称）') + ' <span class="mono mute">' + esc(f.qq_id) + '</span></dd>' +
+    '<dt>文件名</dt><dd>' + esc(f.filename) + '</dd>' +
+    '<dt>上传时间</dt><dd>' + esc(fmtTime(f.uploaded_at)) + '</dd>' +
+    '<dt>最近回旋</dt><dd>' + esc(f.last_sent ? fmtTime(f.last_sent) : '从未') + '</dd>' +
+    '<dt>磁盘路径</dt><dd class="mono dim">' + esc(f.path || '—') + '</dd>' +
+    '<dt>字数</dt><dd>' + esc((f.content_text || '').length) + '</dd>' +
+    '</dl>' +
+    '<div class="box" style="margin-top:16px"><h3>正文</h3><div class="body"><pre class="content">' +
+    esc(f.content_text || '') + '</pre></div></div>' +
+    '<div class="row-actions"><button class="btn danger" data-act="del-file" data-id="' + esc(f.id) + '">删除资料</button></div>');
+}
+
+/* ---- 用户 ---- */
+
+async function viewUsers(el) {
+  const d = await api('/users');
+  el.innerHTML = table(
+    [{ t: 'QQ' }, { t: '昵称' }, { t: '口嗨', num: true }, { t: '资料', num: true }, { t: '会话', num: true },
+     { t: '回旋间隔' }, { t: '总结' }, { t: '最近口嗨' }, { t: '' }],
+    d.items.map((u) => [
+      '<span class="mono">' + esc(u.qq_id) + '</span>',
+      '<input class="field" style="width:130px" data-name="' + esc(u.qq_id) + '" value="' + esc(u.display_name || '') + '">',
+      esc(u.snippet_count), esc(u.file_count),
+      esc(u.session_count) + (u.open_count ? ' <span class="tag open">' + esc(u.open_count) + ' 进行中</span>' : ''),
+      '<input class="field sm" type="number" min="1" max="365" data-days="' + esc(u.qq_id) + '" value="' + esc(u.boomerang_days || 3) + '"> 天',
+      '<select class="field" data-summary="' + esc(u.qq_id) + '"><option value="1"' + (u.summary_on ? ' selected' : '') + '>开</option>' +
+        '<option value="0"' + (u.summary_on ? '' : ' selected') + '>关</option></select>',
+      '<span class="nowrap">' + esc(u.last_snippet_at ? fmtAgo(u.last_snippet_at) : '—') + '</span>',
+      '<button class="btn mini primary" data-act="save-user" data-qq="' + esc(u.qq_id) + '">保存</button> ' +
+      '<button class="btn mini danger" data-act="del-user" data-qq="' + esc(u.qq_id) + '">删除</button>',
+    ])
+  );
+}
+
+async function saveUser(qq) {
+  const name = document.querySelector('[data-name="' + CSS.escape(qq) + '"]');
+  const days = document.querySelector('[data-days="' + CSS.escape(qq) + '"]');
+  const sum = document.querySelector('[data-summary="' + CSS.escape(qq) + '"]');
+  await api('/users/' + encodeURIComponent(qq), {
+    method: 'PATCH',
+    body: JSON.stringify({
+      display_name: name.value,
+      boomerang_days: Number(days.value),
+      summary_on: sum.value === '1',
+    }),
+  });
+  toast('已保存用户 ' + qq, 'ok');
+}
+
+async function deleteUser(qq) {
+  const ok = await confirmDialog('删除用户',
+    '将永久删除 ' + qq + ' 的全部数据：所有会话、捕获的消息、口嗨片段、上传资料与磁盘文件。此操作不可撤销。', '永久删除');
+  if (!ok) return;
+  const r = await api('/users/' + encodeURIComponent(qq), { method: 'DELETE' });
+  toast('已删除：会话 ' + r.sessions + ' / 片段 ' + r.snippets + ' / 资料 ' + r.files, 'ok');
+  go(current);
+}
+
+/* ---- 检索 ---- */
+
+async function viewSearch(el) {
+  el.innerHTML =
+    '<div class="toolbar">' +
+    '<input class="field" id="q" style="width:320px" placeholder="搜索所有用户的口嗨与资料…">' +
+    '<button class="btn primary" data-act="do-search">搜索</button>' +
+    '<span class="mute">回车也可搜索</span></div>' +
+    '<div id="results"><div class="empty">输入关键词开始搜索</div></div>';
+  const input = $('#q');
+  input.focus();
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
+}
+
+async function doSearch() {
+  const q = $('#q').value.trim();
+  const box = $('#results');
+  if (!q) { box.innerHTML = '<div class="empty">输入关键词开始搜索</div>'; return; }
+  box.innerHTML = '<div class="empty">搜索中…</div>';
+  const d = await api('/search?q=' + encodeURIComponent(q));
+  if (!d.items.length) { box.innerHTML = '<div class="empty">没有找到匹配内容</div>'; return; }
+  box.innerHTML = '<div class="mute" style="margin-bottom:10px">命中 ' + d.items.length + ' 条</div>' +
+    table(
+      [{ t: '类型' }, { t: '归属' }, { t: 'ID', num: true }, { t: '摘要' }, { t: '' }],
+      d.items.map((h) => [
+        h.kind === 'file' ? '<span class="tag">资料</span>' : '<span class="tag">口嗨</span>',
+        esc(h.display_name || '（无昵称）') + ' <span class="mono mute">' + esc(h.owner) + '</span>',
+        esc(h.ref_id),
+        '<span class="dim">' + esc(String(h.content).replace(/\s+/g, ' ').slice(0, 160)) + '…</span>',
+        h.kind === 'file'
+          ? '<button class="btn mini" data-act="file" data-id="' + esc(h.ref_id) + '">查看</button>'
+          : '<button class="btn mini" data-act="snippet" data-id="' + esc(h.ref_id) + '">查看</button>',
+      ])
+    );
+}
+
+/* ---- 回旋镖 ---- */
+
+async function viewBoomerangs(el) {
+  const d = await api('/boomerangs');
+  el.innerHTML =
+    '<div class="toolbar">' +
+    '<button class="btn primary" data-act="boom-run">立即执行一轮回旋镖</button>' +
+    '<span class="mute">定时任务每 30 分钟自动跑一次</span></div>' +
+    box('待回旋队列（' + d.items.length + '）', table(
+      [{ t: '归属' }, { t: '类型' }, { t: 'ID', num: true }, { t: '内容' }, { t: '应回旋于' }, { t: '间隔' }],
+      d.items.map((b) => [
+        esc(b.display_name || '（无昵称）') + ' <span class="mono mute">' + esc(b.qq_id) + '</span>',
+        b.kind === 'file' ? '资料' : '口嗨',
+        esc(b.id),
+        '<span class="dim">' + esc(String(b.title || '（无总结）').slice(0, 120)) + '</span>',
+        '<span class="nowrap">' + esc(fmtTime(b.dueAt)) + '</span> <span class="mute">' + esc(fmtAgo(b.dueAt)) + '</span>',
+        esc(b.days) + ' 天',
+      ])
+    )) +
+
+    box('发送历史（累计 ' + (d.sentTotal || 0) + ' 条）', table(
+      [{ t: '时间' }, { t: '归属' }, { t: '类型' }, { t: 'ID', num: true }],
+      (d.history || []).map((h) => [
+        '<span class="nowrap">' + esc(fmtTime(h.scheduled_at)) + '</span> <span class="mute">' + esc(fmtAgo(h.scheduled_at)) + '</span>',
+        esc(h.display_name || '（无昵称）') + ' <span class="mono mute">' + esc(h.qq_id) + '</span>',
+        h.target_type === 'file' ? '资料' : '口嗨',
+        esc(h.target_id),
+      ])
+    ));
+}
+
+/* ---- 导出 ---- */
+
+async function viewExport(el) {
+  const d = await api('/users');
+  el.innerHTML = box('导出用户数据',
+    '<div class="body"><p class="dim">导出的内容会打包成 zip 直接下载（与用户在 QQ 里用 <span class="mono">/导出</span> 拿到的完全一致）。</p>' +
+    '<div class="toolbar" style="margin:0">' +
+    '<select class="field" id="ex-user">' + d.items.map((u) =>
+      '<option value="' + esc(u.qq_id) + '">' + esc(u.display_name || '（无昵称）') + ' · ' + esc(u.qq_id) +
+      '（' + u.snippet_count + ' 口嗨 / ' + u.file_count + ' 资料）</option>').join('') + '</select>' +
+    '<select class="field" id="ex-fmt"><option value="pdf">pdf</option><option value="md">md</option><option value="txt">txt</option></select>' +
+    '<input class="field" id="ex-scope" list="ex-scope-list" value="all" placeholder="all" style="width:150px">' +
+    '<datalist id="ex-scope-list">' +
+    '<option value="all">全部</option>' +
+    '<option value="recent 5">最近 5 篇</option>' +
+    '<option value="recent 20">最近 20 篇</option>' +
+    '<option value="#12">指定编号 #12</option>' +
+    '</datalist>' +
+    '<button class="btn primary" data-act="do-export">导出并下载</button>' +
+    '</div></div>');
+}
+
+async function doExport() {
+  const qq = $('#ex-user').value;
+  const format = $('#ex-fmt').value;
+  const scope = $('#ex-scope').value;
+  const res = await fetch('/api/export', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ qq, format, scope }),
+  });
+  if (res.status === 401) { showLogin(); return; }
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.error || 'HTTP ' + res.status);
+  }
+  const cd = res.headers.get('Content-Disposition') || '';
+  let name = 'export.zip';
+  const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+  if (m) { try { name = decodeURIComponent(m[1]); } catch (e) { /* ignore */ } }
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  const note = res.headers.get('X-Export-Note');
+  toast('已导出 ' + res.headers.get('X-Export-Count') + ' 篇：' + name + (note ? '（' + decodeURIComponent(note) + '）' : ''), 'ok');
+}
+
+/* ---- 配置 ---- */
+
+async function viewConfig(el) {
+  const c = await api('/config');
+  const kv = (title, obj) =>
+    box(title, '<div class="body"><dl class="kv">' + Object.entries(obj).map(([k, v]) =>
+      '<dt>' + esc(k) + '</dt><dd class="mono">' + esc(v) + '</dd>').join('') + '</dl></div>');
+
+  el.innerHTML =
+    kv('运行参数', c.runtime) +
+    kv('路径', c.paths) +
+    kv('OneBot', c.onebot) +
+    kv('大模型', c.llm) +
+    kv('管理台', c.admin) +
+    kv('上传限制', { 支持格式: c.upload.exts.join(' '), 单文件上限: fmtBytes(c.upload.maxBytes) }) +
+    '<div class="box"><h3>操作</h3><div class="body">' +
+    '<button class="btn" data-act="reconnect">强制重连 OneBot</button>' +
+    '<p class="mute" style="margin-bottom:0">配置项来自 .env，改动后需重启进程生效。</p>' +
+    '</div></div>';
+}
+
+/* ---- 日志 ---- */
+
+let logLevel = 'all';
+
+async function viewLogs(el) {
+  async function paint() {
+    const d = await api('/logs?limit=300');
+    const items = logLevel === 'all' ? d.logs : d.logs.filter((l) => l.level === logLevel);
+    el.innerHTML =
+      '<div class="toolbar">' +
+      ['all', 'info', 'warn', 'error', 'debug'].map((lv) =>
+        '<button class="btn mini' + (logLevel === lv ? ' primary' : '') + '" data-act="log-level" data-v="' + lv + '">' + lv + '</button>').join('') +
+      '<button class="btn mini" data-act="log-clear">清空</button>' +
+      '<span class="mute">仅保留本次进程最近 300 条（不落盘）</span></div>' +
+      '<div class="box"><div class="body">' +
+      (items.length ? items.map((l) =>
+        '<div class="logline ' + esc(l.level) + '"><span class="lv">' + esc(l.level) + '</span>' +
+        '<span class="mute nowrap">' + esc(fmtTime(l.ts)) + '</span><span class="m">' + esc(l.msg) + '</span></div>'
+      ).join('') : '<div class="empty">暂无日志</div>') +
+      '</div></div>';
+  }
+  await paint();
+  timers.push(setInterval(() => paint().catch(() => {}), 5000));
+}
+
+/* ---------------- 全局事件 ---------------- */
+
+document.addEventListener('click', async (e) => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const act = el.dataset.act;
+  const id = el.dataset.id;
+  try {
+    switch (act) {
+      case 'refresh': return go(current);
+      case 'logout':
+        await api('/logout', { method: 'POST' });
+        return showLogin();
+      case 'close-modal': return closeModal();
+      case 'session-filter': sessionFilter = el.dataset.v; return go('sessions');
+      case 'session': return await showSession(id);
+      case 'archive': return await archiveSession(id, true);
+      case 'archive-nosum': return await archiveSession(id, false);
+      case 'snippet': return await showSnippet(id);
+      case 'file': return await showFile(id);
+      case 'del-snippet': {
+        const ok = await confirmDialog('删除片段', '将永久删除片段 #' + id + ' 及其检索索引（原始消息保留在会话里）。不可撤销。', '永久删除');
+        if (!ok) return;
+        await api('/snippets/' + id, { method: 'DELETE' });
+        toast('已删除片段 #' + id, 'ok');
+        closeModal();
+        return go(current);
+      }
+      case 'del-file': {
+        const ok = await confirmDialog('删除资料', '将永久删除资料 #' + id + '、检索索引与磁盘文件。不可撤销。', '永久删除');
+        if (!ok) return;
+        await api('/files/' + id, { method: 'DELETE' });
+        toast('已删除资料 #' + id, 'ok');
+        closeModal();
+        return go(current);
+      }
+      case 'resummarize': {
+        el.disabled = true;
+        el.textContent = '生成中…';
+        try {
+          const r = await api('/snippets/' + id + '/resummarize', { method: 'POST' });
+          toast('总结已更新', 'ok');
+          return await showSnippet(id);
+        } finally {
+          el.disabled = false;
+          el.textContent = '重新生成总结';
+        }
+      }
+      case 'boom': {
+        await api('/snippets/' + id + '/boomerang', { method: 'POST' });
+        toast('回旋镖已私聊发送', 'ok');
+        return;
+      }
+      case 'save-user': return await saveUser(el.dataset.qq);
+      case 'del-user': return await deleteUser(el.dataset.qq);
+      case 'do-search': return await doSearch();
+      case 'boom-run': {
+        const r = await api('/boomerangs/run', { method: 'POST' });
+        toast('本轮已发送 ' + r.sent + ' 条回旋镖', 'ok');
+        return go('boomerangs');
+      }
+      case 'do-export': return await doExport();
+      case 'reconnect': {
+        await api('/onebot/reconnect', { method: 'POST' });
+        toast('已触发重连', 'ok');
+        return;
+      }
+      case 'log-level': logLevel = el.dataset.v; return go('logs');
+      case 'log-clear': toast('日志只保留在内存中，重启即清空', 'ok'); return;
+    }
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+});
+
+$('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+/* ---------------- 登录 / 启动 ---------------- */
+
+function showLogin() {
+  clearTimers();
+  $('#app').classList.remove('show');
+  $('#login').classList.add('show');
+  $('#login-token').value = '';
+  setTimeout(() => $('#login-token').focus(), 50);
+}
+
+$('#login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = e.target.querySelector('button');
+  btn.disabled = true;
+  try {
+    await api('/login', { method: 'POST', body: JSON.stringify({ token: $('#login-token').value }) });
+    await boot();
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function boot() {
+  $('#login').classList.remove('show');
+  $('#app').classList.add('show');
+  if (!$('#nav').childElementCount) buildNav();
+  await go(current);
+  // 顶部连接状态轻量轮询
+  timers.push(setInterval(async () => {
+    try { setConn((await api('/overview')).bot); } catch (e) { /* ignore */ }
+  }, 15000));
+}
+
+(async function init() {
+  try {
+    const s = await api('/session');
+    if (s.authed) await boot();
+    else showLogin();
+  } catch (e) {
+    showLogin();
+  }
+})();
+</script>
+</body>
+</html>

@@ -61,6 +61,21 @@ CREATE TABLE IF NOT EXISTS boomerangs (
   sent         INTEGER DEFAULT 0
 );
 
+-- 群级"已告知"状态：首次在某群开启记录时发一次知情同意公告，之后不重复刷屏
+CREATE TABLE IF NOT EXISTS group_notices (
+  group_id     TEXT PRIMARY KEY,
+  announced_at INTEGER
+);
+
+-- 撤回审计：用户行使"删除我在本群的发言"权利时留痕（实际数据是真删）
+CREATE TABLE IF NOT EXISTS redactions (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  qq_id         TEXT,
+  group_id      TEXT,
+  removed_count INTEGER,
+  created_at    INTEGER
+);
+
 -- 全文检索：trigram 分词器支持中文子串匹配
 CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
   content,
@@ -73,8 +88,10 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
 CREATE INDEX IF NOT EXISTS idx_sessions_qq      ON sessions(qq_id, status);
 CREATE INDEX IF NOT EXISTS idx_sessions_group   ON sessions(group_id, status);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_messages_speaker ON messages(qq_id);
 CREATE INDEX IF NOT EXISTS idx_snippets_qq      ON snippets(qq_id);
 CREATE INDEX IF NOT EXISTS idx_files_qq         ON files(qq_id);
+CREATE INDEX IF NOT EXISTS idx_boomerangs_qq    ON boomerangs(qq_id, id);
 `;
 
 function openDb(dbPath) {

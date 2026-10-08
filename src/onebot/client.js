@@ -27,6 +27,22 @@ class OneBotClient {
     }
   }
 
+  // 管理台用：立刻断开重连（不等退避计时）
+  reconnect() {
+    this.closed = false;
+    this.retry = 0;
+    const old = this.ws;
+    this.ws = null;
+    if (old) {
+      // 摘掉回调，避免触发 _scheduleReconnect 造成双连接
+      old.onclose = null;
+      old.onerror = null;
+      old.onmessage = null;
+      try { old.close(); } catch (e) { /* ignore */ }
+    }
+    this._connect();
+  }
+
   _buildUrl() {
     if (!this.token) return this.url;
     const u = new URL(this.url);

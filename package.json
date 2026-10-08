@@ -2,18 +2,22 @@
   "name": "fatcat-bot",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "肥肥风筝猫 —— 最忠实的口嗨记录者（QQ OneBot 11 机器人）",
   "type": "commonjs",
   "main": "src/index.js",
   "scripts": {
     "start": "node --experimental-sqlite src/index.js",
-    "selftest": "node --experimental-sqlite scripts/selftest.js"
+    "selftest": "node --experimental-sqlite scripts/selftest.js",
+    "admintest": "node --experimental-sqlite scripts/admincheck.js",
+    "admindemo": "node --experimental-sqlite scripts/admindemo.js",
+    "admine2e": "node scripts/admine2e.mjs",
+    "pdf:build": "node scripts/pdfcheck.js",
+    "pdf:verify": "node scripts/pdftext.mjs",
+    "pdf:validate": "python scripts/pdfvalidate.py"
   },
   "engines": {
     "node": ">=22.5.0"
   },
-  "dependencies": {},
-  "optionalDependencies": {
-    "pdfkit": "^0.15.0"
-  }
+  "dependencies": {}
 }

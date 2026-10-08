@@ -7,42 +7,79 @@ const { createRepo } = require('./repo');
 const { OneBotClient } = require('./onebot/client');
 const { createBot } = require('./core/bot');
 const { startBoomerang } = require('./core/boomerang');
+const { createAdminServer } = require('./admin/server');
 
-function main() {
+function isLoopback(host) {
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+}
+
+async function main() {
   const rootDir = path.resolve(__dirname, '..');
   const config = loadConfig(rootDir);
+  const startedAt = Date.now();
 
   const db = openDb(config.dbPath);
   const repo = createRepo(db);
 
-  let bot;
-  const client = new OneBotClient({
-    url: config.onebot.wsUrl,
-    accessToken: config.onebot.accessToken,
-    echoTimeoutMs: config.onebot.echoTimeoutMs,
-    onEvent: (ev) => {
-      bot.handleEvent(ev).catch((e) => logger.error('处理事件失败: ' + (e.stack || e.message)));
-    },
-  });
-  bot = createBot({ config, repo, client });
+  let client = null;
+  let bot = null;
+  let boomerang = null;
 
-  client.start();
-  const boomerang = startBoomerang({ config, repo, client });
+  if (config.admin.only) {
+    logger.warn('ADMIN_ONLY 模式：只启动管理台，不连接 OneBot');
+  } else {
+    client = new OneBotClient({
+      url: config.onebot.wsUrl,
+      accessToken: config.onebot.accessToken,
+      echoTimeoutMs: config.onebot.echoTimeoutMs,
+      onEvent: (ev) => {
+        bot.handleEvent(ev).catch((e) => logger.error('处理事件失败: ' + (e.stack || e.message)));
+      },
+    });
+    bot = createBot({ config, repo, client });
+    client.start();
+    boomerang = startBoomerang({ config, repo, client });
+  }
+
+  const admin = createAdminServer({ config, repo, client, boomerang, startedAt });
+  let adminAddr = null;
+  try {
+    adminAddr = await admin.start();
+  } catch (e) {
+    logger.error('管理台启动失败：' + e.message + '（机器人继续运行）');
+  }
 
   logger.info('【肥肥风筝猫】已启动');
   logger.info(`数据目录：${config.dataDir}`);
-  logger.info(`OneBot：${config.onebot.wsUrl}`);
-  logger.info(`总结：${config.llm.apiKey ? '开启' : '关闭（未配置 LLM）'}`);
+  logger.info(`OneBot：${config.admin.only ? '未连接（ADMIN_ONLY）' : config.onebot.wsUrl}`);
+  logger.info(`总结：${config.llm.apiKey && config.llm.model ? '开启' : '关闭（未配置 LLM）'}`);
+  logger.info(`PDF 字体：${config.fontPath || '未探测到（导出回退 txt）'}`);
+
+  if (adminAddr) {
+    const shown = isLoopback(config.admin.host) ? '127.0.0.1' : config.admin.host;
+    logger.info(`管理台：http://${shown}:${adminAddr.port}/`);
+    if (admin.tokenGenerated) {
+      logger.warn(`本次未设置 ADMIN_TOKEN，已随机生成登录口令（重启会变）：${admin.token}`);
+      logger.warn('建议在 .env 里固定 ADMIN_TOKEN=<你自己的口令>');
+    }
+    if (!isLoopback(config.admin.host)) {
+      logger.warn(`⚠️  管理台绑定在 ${config.admin.host}，可被外部访问。请务必设置强 ADMIN_TOKEN，并优先通过内网 / SSH 隧道访问。`);
+    }
+  }
 
   const shutdown = () => {
     logger.info('退出中…');
-    boomerang.stop();
-    client.stop();
+    if (boomerang) boomerang.stop();
+    if (client) client.stop();
+    if (adminAddr) admin.stop().catch(() => {});
     try { db.close(); } catch (e) { /* ignore */ }
-    process.exit(0);
+    setTimeout(() => process.exit(0), 50).unref();
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 }
 
-main();
+main().catch((e) => {
+  logger.error('启动失败：' + (e.stack || e.message));
+  process.exit(1);
+});

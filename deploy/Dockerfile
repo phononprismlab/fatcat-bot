@@ -10,7 +10,15 @@
 
 FROM node:22-bookworm-slim
 
-RUN apt-get update \
+# 容器内 apt 的源。**国内服务器必须换**，否则 apt-get update 会卡在 deb.debian.org 上
+# 直到超时（实测 3 分钟零流量）。
+#   在 .env 里设 APT_MIRROR=mirrors.tencentyun.com（腾讯云内网）即可，compose 会传进来。
+#   海外环境留空，用 Debian 官方源。
+ARG APT_MIRROR=
+RUN if [ -n "$APT_MIRROR" ]; then \
+      sed -i "s|deb\.debian\.org|$APT_MIRROR|g" /etc/apt/sources.list.d/debian.sources; \
+    fi \
+ && apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates \
       tzdata \

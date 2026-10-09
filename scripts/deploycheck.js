@@ -568,12 +568,11 @@ async function main() {
     assert.ok(!/^\s*-\s*"?8787:8787/m.test(raw), '不允许直接把 8787 暴露到 0.0.0.0');
   });
 
-  await t('compose 里 NapCat WebUI 有「不要暴露公网」的显式警告', () => {
+  await t('compose 里 NapCat WebUI 也只发布到回环地址（默认不暴露公网）', () => {
     const raw = read('deploy/docker-compose.yml');
-    const idx = raw.indexOf('6099:6099');
-    assert.ok(idx > 0, '应发布 6099');
-    const around = raw.slice(Math.max(0, idx - 400), idx);
-    assert.ok(/公网/.test(around), '6099 附近应有公网风险提示');
+    assert.ok(raw.includes('"127.0.0.1:6099:6099"'), 'NapCat WebUI 的 6099 应只绑 127.0.0.1');
+    assert.ok(!/^\s*-\s*"?6099:6099/m.test(raw), '不允许直接把 6099 暴露到 0.0.0.0');
+    assert.ok(/SSH 隧道/.test(raw), '应说明首次登录 WebUI 怎么走 SSH 隧道');
   });
 
   await t('Dockerfile：带 sqlite flag + 装中文字体 + 非 root 运行', () => {

@@ -12,10 +12,11 @@
 #   3. 看日志确认连上了：
 #        docker compose -f deploy/docker-compose.yml logs -f fatcat
 #        看到「OneBot 已连接」即可
-#   4. 首次需要登录 QQ：浏览器打开 http://<服务器IP>:6099/webui
-#        口令就是 .env 里的 NAPCAT_WEBUI_TOKEN
-#        ⚠️ 公网环境请把下面的 "6099:6099" 改成 "127.0.0.1:6099:6099"，
-#           然后用 SSH 隧道访问（NapCat 官方明确警告 WebUI 不要暴露公网）
+#   4. 首次需要登录 QQ：WebUI 默认只绑宿主机回环地址，用 SSH 隧道访问：
+#        ssh -N -L 6099:127.0.0.1:6099 ubuntu@<服务器IP>
+#        然后本地浏览器打开 http://127.0.0.1:6099/webui
+#        口令就是 .env 里的 NAPCAT_WEBUI_TOKEN，进去扫码登录 QQ
+#        （NapCat 官方明确警告 WebUI 不要暴露公网，所以这里默认就不发布到公网）
 #
 # 关于 MODE=ws：
 #   NapCat 镜像支持 MODE=<模板名>，启动时会把 /app/templates/ws.json 拷成
@@ -29,6 +30,10 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+      args:
+        # 容器内 apt 用的镜像源。国内服务器在 .env 里设 APT_MIRROR=mirrors.tencentyun.com，
+        # 否则 apt-get update 会卡在 deb.debian.org 上直到超时（实测 3 分钟零流量）。
+        APT_MIRROR: ${APT_MIRROR:-}
     image: fatcat-bot:latest
     container_name: fatcat-bot
     restart: unless-stopped
@@ -84,8 +89,9 @@ services:
       - ../docker-data/ntqq:/app/.config/QQ
 
     ports:
-      # ⚠️ NapCat WebUI。公网环境请改成 "127.0.0.1:6099:6099"
-      - "6099:6099"
+      # NapCat WebUI 只发布到宿主机回环地址 —— 官方明确警告不要暴露公网。
+      # 首次登录 QQ 用 SSH 隧道（见文件顶部第 4 步），或临时改成本机端口转发。
+      - "127.0.0.1:6099:6099"
 
     networks:
       - fatcat

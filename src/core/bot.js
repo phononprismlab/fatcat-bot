@@ -2,7 +2,7 @@
 const path = require('node:path');
 const logger = require('../logger');
 const { extractText, findSegments } = require('../onebot/message');
-const { buildExport } = require('./export');
+const { buildExport, snippetExportName } = require('./export');
 const { ingestUpload } = require('./upload');
 const { finalizeSession } = require('./session');
 const { sendBoomerang } = require('./boomerang');
@@ -82,15 +82,17 @@ function createBot({ config, repo, client }) {
     }
     const user = repo.getUser(userId);
     const withSummary = !user || user.summary_on !== 0;
-    const { summary } = await finalizeSession({ config, repo, session: open, withSummary });
+    const { summary, snippetId } = await finalizeSession({ config, repo, session: open, withSummary });
 
     await reply(userId, groupId, '【肥肥风筝猫已经记录下你的口嗨。】');
-    const priv = summary ? `本次口嗨总结：\n${summary}` : '（本次未生成总结，原文已存档）';
-    try {
-      await client.sendPrivateMsg(userId, [{ type: 'text', data: { text: priv } }]);
-    } catch (e) {
-      logger.warn('私聊总结发送失败: ' + e.message);
-    }
+    // 带上这份记录的文件名（与 /导出 产出一致），方便日后找回
+    const snip = snippetId != null ? repo.getSnippet(snippetId) : null;
+    const fileName = snip ? snippetExportName(snip, 'txt') : '';
+    const body =
+      (summary ? `本次口嗨总结：\n${summary}` : '（本次未生成总结，原文已存档）') +
+      (fileName ? `\n\n记录文件名：${fileName}（导出可选 txt / md / pdf）` : '');
+    // 哪里口嗨就发哪里：群聊回群、私聊回私聊（不再另发一份）
+    await reply(userId, groupId, body);
   }
 
   // 记录窗口内，捕获本群所有人的发言（按说话者归属到每个开启中的会话）

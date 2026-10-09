@@ -78,6 +78,12 @@ function fileBlocks(file, owner) {
   ];
 }
 
+// 片段导出文件名（与 /导出 实际产出保持一致的唯一定义处）：片段<id>_<记录时间戳>.<ext>
+function snippetExportName(snippet, ext) {
+  const stamp = fmtTime(snippet.created_at).replace(/[^\d]/g, '');
+  return sanitizeFilename(`片段${snippet.id}_${stamp}.${ext || 'txt'}`);
+}
+
 // 返回 { files:[路径], zipPath, zipName, count, note, scopeNote, format } 或 { error }
 async function buildExport({ config, repo, userId, format, scope }) {
   const owner = repo.getUser(userId) || { qq_id: userId, display_name: '' };
@@ -146,7 +152,6 @@ async function buildExport({ config, repo, userId, format, scope }) {
   const items = [];
   for (const s of snippets) {
     const messages = repo.getMessages(s.session_id);
-    const stamp = fmtTime(s.created_at).replace(/[^\d]/g, '');
     let content;
     if (want === 'pdf') {
       content = renderPdf({ fontPath: config.fontPath, blocks: snippetBlocks(s, messages, owner), title: `口嗨片段 #${s.id}` });
@@ -155,7 +160,7 @@ async function buildExport({ config, repo, userId, format, scope }) {
     } else {
       content = buildSnippetText(s, messages, owner);
     }
-    items.push({ name: sanitizeFilename(`片段${s.id}_${stamp}.${ext}`), content });
+    items.push({ name: snippetExportName(s, ext), content });
   }
   for (const f of files) {
     let content;
@@ -195,4 +200,4 @@ async function buildExport({ config, repo, userId, format, scope }) {
   return { files: written, zipPath, zipName, count: written.length, note, scopeNote, format: want };
 }
 
-module.exports = { buildExport };
+module.exports = { buildExport, snippetExportName };

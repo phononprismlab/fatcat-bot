@@ -53,22 +53,29 @@ function createBot({ config, repo, client }) {
   ].join('\n');
 
   // ---- 记录状态机 ----
-  async function startRecording(userId, groupId) {
-    if (repo.getOpenSession(userId)) {
+  async function startRecording(userId, groupId, isGroup) {
+    // 用合成键判断「该上下文是否已在记录」，允许群记录与私聊记录并存
+    const sKey = isGroup ? groupId : ('private:' + userId);
+    const existing = repo.getOpenSessionsByGroup(sKey).find((s) => s.qq_id === userId);
+    if (existing) {
       await reply(userId, groupId, '【肥肥风筝猫】你已经在记录中啦，喊「我口嗨完了」结束～');
       return;
     }
-    // 每个群只告知一次，避免每次开记录都刷屏
-    if (groupId && !repo.hasGroupNotice(groupId)) {
+    // 每个群只告知一次；私聊不弹群体知情同意公告（记录的是你自己）
+    if (isGroup && !repo.hasGroupNotice(groupId)) {
       await reply(userId, groupId, GROUP_NOTICE);
       repo.markGroupNotice(groupId);
     }
-    repo.createSession(userId, groupId);
-    await reply(userId, groupId, '【肥肥风筝猫】开始记录啦～大家随便聊，口嗨完喊「我口嗨完了」');
+    repo.createSession(userId, sKey);
+    const tip = isGroup
+      ? '【肥肥风筝猫】开始记录啦～大家随便聊，口嗨完喊「我口嗨完了」'
+      : '【肥肥风筝猫】开始记录啦～这条私聊里的发言我都会记下来，口嗨完喊「我口嗨完了」';
+    await reply(userId, groupId, tip);
   }
 
-  async function endRecording(userId, groupId) {
-    const open = repo.getOpenSession(userId);
+  async function endRecording(userId, groupId, isGroup) {
+    const sKey = isGroup ? groupId : ('private:' + userId);
+    const open = repo.getOpenSessionsByGroup(sKey).find((s) => s.qq_id === userId);
     if (!open) {
       await reply(userId, groupId, '【肥肥风筝猫】你现在没有在记录哦');
       return;
@@ -338,12 +345,16 @@ function createBot({ config, repo, client }) {
       if (!text) return;
     }
 
-    if (isGroup && text && text.includes(config.startPhrase)) {
-      await startRecording(userId, groupId);
+    // 私聊没有 group_id；用合成键区分「私聊会话」与「群会话」，互不串台。
+    // 回复一律用真实 groupId（私聊为 null -> 走 sendPrivateMsg），保证回私聊。
+    const sessionGroupId = isGroup ? groupId : ('private:' + userId);
+
+    if (text && text.includes(config.startPhrase)) {
+      await startRecording(userId, groupId, isGroup);
       return;
     }
     if (text && text.includes(config.endPhrase)) {
-      await endRecording(userId, groupId);
+      await endRecording(userId, groupId, isGroup);
       return;
     }
 
@@ -356,7 +367,7 @@ function createBot({ config, repo, client }) {
       return;
     }
 
-    capture(groupId, userId, name, text, ts);
+    capture(sessionGroupId, userId, name, text, ts);
   }
 
   return { handleEvent, COMMANDS };
